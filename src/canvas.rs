@@ -1,5 +1,4 @@
 // Structure d'un pixel standard (Rouge, Vert, Bleu, Opacité)
-// On utilise derive(Clone, Copy) pour manipuler la mémoire très rapidement.
 #[derive(Clone, Copy, Debug)]
 pub struct Rgba {
     pub r: u8,
@@ -51,5 +50,38 @@ impl Canvas {
         let layer = Layer::new(name, self.width, self.height);
         self.layers.push(layer);
         println!("[Moteur] Calque '{}' généré en mémoire.", name);
+    }
+
+    // Moteur de rendu : fusionne tous les calques de bas en haut
+    pub fn render_flattened(&self) -> Vec<Rgba> {
+        let total_pixels = self.width * self.height;
+        
+        // On initialise une "toile de fond" blanche et opaque
+        let mut output = vec![Rgba { r: 255, g: 255, b: 255, a: 255 }; total_pixels];
+
+        for layer in &self.layers {
+            if !layer.visible {
+                continue; // On ignore les calques masqués pour économiser le CPU
+            }
+		
+	    // Ajoute cette ligne pour utiliser la variable 'name' et informer l'utilisateur :
+            println!("  -> Calcul des pixels pour le calque : {}", layer.name);
+
+            for i in 0..total_pixels {
+                let top = &layer.pixels[i];
+                let bottom = &mut output[i];
+
+                // Calcul de l'opacité réelle
+                let alpha = (top.a as f32 / 255.0) * layer.opacity;
+                let inv_alpha = 1.0 - alpha;
+
+                // Application stricte de l'Alpha Blending (Interpolation linéaire)
+                bottom.r = ((top.r as f32 * alpha) + (bottom.r as f32 * inv_alpha)) as u8;
+                bottom.g = ((top.g as f32 * alpha) + (bottom.g as f32 * inv_alpha)) as u8;
+                bottom.b = ((top.b as f32 * alpha) + (bottom.b as f32 * inv_alpha)) as u8;
+            }
+        }
+        
+        output
     }
 }

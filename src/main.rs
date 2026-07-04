@@ -1,19 +1,24 @@
-// On déclare notre nouveau module pour que Rust l'intègre à la compilation
 mod canvas;
 
-use canvas::Canvas;
+use canvas::{Canvas, Rgba};
 
 fn main() {
     println!("--- Démarrage de Limix Studio ---");
 
-    // 1. Définition de l'espace de travail (ex: un canvas Full HD)
     let mut workspace = Canvas::new(1920, 1080);
-    println!("Document initialisé : {}x{} pixels", workspace.width, workspace.height);
-
-    // 2. Création de l'architecture de calques de base
+    
     workspace.add_layer("Arrière-plan");
     workspace.add_layer("Tracé Principal");
 
-    // 3. Vérification de l'état du système
-    println!("Moteur prêt. Nombre de calques actifs : {}", workspace.layers.len());
+    // Simulation : On injecte un pixel rouge pur sur le calque supérieur (Index 0 = en haut à gauche)
+    workspace.layers[1].pixels[0] = Rgba { r: 255, g: 0, b: 0, a: 255 };
+    println!("Simulation : Coup de pinceau rouge appliqué sur 'Tracé Principal'.");
+
+    // Appel du moteur de compositing
+    println!("Lancement du calcul de fusion des calques...");
+    let image_finale = workspace.render_flattened();
+
+    // Vérification du résultat
+    println!("Rendu terminé !");
+    println!("Couleur du premier pixel à l'écran : {:?}", image_finale[0]);
 }
