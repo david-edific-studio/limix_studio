@@ -30,7 +30,7 @@ Une fois les prérequis installés, ouvre ton terminal et exécute :
 
 ```bash
 # Récupérer le code source
-git clone [https://github.com/david-edific-studio/limix_studio.git](https://github.com/david-edific-studio/limix_studio.git)
+git clone https://github.com/david-edific-studio/limix_studio.git
 
 # Entrer dans le répertoire
 cd limix_studio
