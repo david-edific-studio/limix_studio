@@ -37,3 +37,14 @@ cd limix_studio
 
 # Compiler et lancer le logiciel
 cargo run
+
+
+
+
+# Procedure push
+git add .
+git commit -m "Description claire de ce qui a été ajouté ou modifié"
+git push origin nom-de-ta-branche
+
+# Si c'est la Branche principale, on fais 
+git push origin main
