@@ -1,19 +1,3 @@
-En tant qu'intelligence artificielle, je n'ai pas les autorisations pour entrer dans ton compte Google et créer un fichier directement dans ton Drive. C'est une sécurité stricte.
-
-Cependant, voici la méthode de l'ingénieur pour obtenir ton Google Doc parfaitement formaté en 10 secondes.
-
-Je t'ai mis le texte ci-dessous **sans le bloc de code noir**. Ainsi, quand tu vas le copier, Google Docs conservera automatiquement les gros titres, le gras et les listes à puces !
-
-### La procédure en 3 clics :
-
-1. Clique sur ce lien magique pour ouvrir un document vierge instantanément : **[doc.new](https://doc.new)**
-2. Sélectionne tout le texte ci-dessous (à partir de "Limix Studio 🎨") et copie-le (`Ctrl + C`).
-3. Va sur ton nouveau Google Doc et colle-le (`Ctrl + V`).
-
-Voici ton document prêt à être copié :
-
----
-
 # Limix Studio 🎨
 
 Limix Studio est une alternative native à Photoshop conçue spécifiquement pour l'écosystème Linux (avec support Windows). Développé en Rust, ce logiciel vise la performance absolue, la stabilité, et la réduction de la charge cognitive grâce à une interface minimaliste et familière.
