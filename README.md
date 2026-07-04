@@ -23,7 +23,7 @@ Le projet requiert **Git** et l'environnement **Rust** pour être compilé.
 ### 🪟 Utilisateurs Windows
 
 1. Installer **Git** via git-scm.com.
-2. Installer les **Visual Studio Build Tools** (indispensable pour la compilation C++ sous Windows).
+2. Installer les **Visual Studio Build Tools** (indispensable pour la compilation C++ sous Windows) (Normalement c'est automatique quand tu installe Rust).
 3. Installer **Rust** via le fichier `rustup-init.exe` disponible sur rustup.rs.
 
 ---
