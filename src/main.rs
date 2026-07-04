@@ -1,5 +1,8 @@
-mod canvas;
+mod core;
 mod ui;
+mod app;
+mod tools;
+mod filters;
 
 use eframe::NativeOptions;
 use ui::LimixApp;
