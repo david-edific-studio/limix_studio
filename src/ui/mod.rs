@@ -1,6 +1,6 @@
 use eframe::egui;
 use crate::core::canvas::{Canvas, Rgba};
-use crate::tools::Tool; // Importation du Tool depuis sa nouvelle maison modulaire
+use crate::tools::Tool;
 
 pub struct LimixApp {
     pub engine: Canvas,
@@ -14,13 +14,20 @@ impl LimixApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // 1. Initialiser le chargeur d'images (Indispensable pour lire les SVG)
         egui_extras::install_image_loaders(&cc.egui_ctx);
+        
+        // --- LE THÈME LIMIX STUDIO ---
+        let mut visuals = egui::Visuals::dark(); // On part sur la base sombre
+        visuals.selection.bg_fill = egui::Color32::from_rgb(255, 136, 0); // On remplace le bleu par l'Orange Limix
+        cc.egui_ctx.set_visuals(visuals);
+        // -----------------------------
+
         let mut engine = Canvas::new(800, 600);
         engine.add_layer("Arrière-plan");
         engine.add_layer("Tracé Principal");
 
-        // Remplissage du fond
+        // Remplissage du fond (Feuille blanche par défaut)
         for p in engine.layers[0].pixels.iter_mut() {
-            *p = Rgba { r: 40, g: 40, b: 40, a: 255 };
+            *p = Rgba { r: 255, g: 255, b: 255, a: 255 }; 
         }
 
         Self {
@@ -32,7 +39,6 @@ impl LimixApp {
     }
 
     // --- LE MOTEUR DYNAMIQUE ---
-    // Cette fonction aspire la RAM du CPU et l'envoie au GPU instantanément
     fn refresh_gpu_texture(&mut self, ctx: &egui::Context) {
         let resultat = self.engine.render_flattened();
         let mut raw_pixels = Vec::with_capacity(resultat.len() * 4);
@@ -71,44 +77,54 @@ impl eframe::App for LimixApp {
         });
 
         egui::SidePanel::left("toolbar").resizable(false).exact_width(45.0).show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(10.0);
+            // On ajoute un ScrollArea : indispensable pour afficher 27 outils sans déborder de l'écran !
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(10.0);
 
-                // --- OUTIL PINCEAU ---
-                let brush_img = egui::Image::new(egui::include_image!("../../assets/icons/brush.svg"))
-                    .max_width(24.0) // On force la taille à 24px
-                    .tint(egui::Color32::WHITE);
-                if ui.add(egui::ImageButton::new(brush_img).selected(self.current_tool == Tool::Brush))
-                    .on_hover_text("Pinceau")
-                    .clicked() 
-                {
-                    self.current_tool = Tool::Brush;
-                }
-                ui.add_space(5.0);
+                    // --- 1. Déplacement & Recadrage ---
+                    add_tool_button(ui, &mut self.current_tool, Tool::Move, egui::include_image!("../../assets/icons/move.svg"), "Déplacement");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Crop, egui::include_image!("../../assets/icons/crop.svg"), "Recadrage");
+                    ui.separator();
 
-                // --- OUTIL GOMME ---
-                let eraser_img = egui::Image::new(egui::include_image!("../../assets/icons/eraser.svg"))
-                    .max_width(24.0)
-                    .tint(egui::Color32::WHITE);
-                if ui.add(egui::ImageButton::new(eraser_img).selected(self.current_tool == Tool::Eraser))
-                    .on_hover_text("Gomme")
-                    .clicked() 
-                {
-                    self.current_tool = Tool::Eraser;
-                }
-                ui.add_space(5.0);
+                    // --- 2. Sélection & Découpage ---
+                    add_tool_button(ui, &mut self.current_tool, Tool::SelectionRect, egui::include_image!("../../assets/icons/select_rect.svg"), "Sélection Rectangulaire");
+                    add_tool_button(ui, &mut self.current_tool, Tool::SelectionEllipse, egui::include_image!("../../assets/icons/select_ellipse.svg"), "Sélection Elliptique");
+                    add_tool_button(ui, &mut self.current_tool, Tool::LassoFree, egui::include_image!("../../assets/icons/lasso_free.svg"), "Lasso");
+                    add_tool_button(ui, &mut self.current_tool, Tool::LassoPoly, egui::include_image!("../../assets/icons/lasso_poly.svg"), "Lasso Polygonal");
+                    add_tool_button(ui, &mut self.current_tool, Tool::LassoMagnetic, egui::include_image!("../../assets/icons/lasso_magnetic.svg"), "Lasso Magnétique");
+                    add_tool_button(ui, &mut self.current_tool, Tool::MagicWand, egui::include_image!("../../assets/icons/magic_wand.svg"), "Baguette Magique");
+                    add_tool_button(ui, &mut self.current_tool, Tool::SelectQuick, egui::include_image!("../../assets/icons/select_quick.svg"), "Sélection Rapide");
+                    add_tool_button(ui, &mut self.current_tool, Tool::RemoveBg, egui::include_image!("../../assets/icons/remove_bg.svg"), "Supprimer le fond");
+                    ui.separator();
 
-                // --- OUTIL SÉLECTION ---
-                // (Assure-toi d'avoir un fichier nommé 'select_rect.svg')
-                let sel_img = egui::Image::new(egui::include_image!("../../assets/icons/select_rect.svg"))
-                    .max_width(24.0)
-                    .tint(egui::Color32::WHITE);
-                if ui.add(egui::ImageButton::new(sel_img).selected(self.current_tool == Tool::Selection))
-                    .on_hover_text("Sélection")
-                    .clicked() 
-                {
-                    self.current_tool = Tool::Selection;
-                }
+                    // --- 3. Peinture & Dessin ---
+                    add_tool_button(ui, &mut self.current_tool, Tool::Brush, egui::include_image!("../../assets/icons/brush.svg"), "Pinceau");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Pencil, egui::include_image!("../../assets/icons/pencil.svg"), "Crayon");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Eraser, egui::include_image!("../../assets/icons/eraser.svg"), "Gomme");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Fill, egui::include_image!("../../assets/icons/fill.svg"), "Pot de peinture");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Gradient, egui::include_image!("../../assets/icons/gradient.svg"), "Dégradé");
+                    ui.separator();
+
+                    // --- 4. Retouche & Couleurs ---
+                    add_tool_button(ui, &mut self.current_tool, Tool::CloneStamp, egui::include_image!("../../assets/icons/clone_stamp.svg"), "Tampon de duplication");
+                    add_tool_button(ui, &mut self.current_tool, Tool::HealingBrush, egui::include_image!("../../assets/icons/healing_brush.svg"), "Correcteur");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Eyedropper, egui::include_image!("../../assets/icons/eyedropper.svg"), "Pipette");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Sharpen, egui::include_image!("../../assets/icons/sharpen.svg"), "Netteté");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Blur, egui::include_image!("../../assets/icons/blur.svg"), "Goutte d'eau (Flou)");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Smudge, egui::include_image!("../../assets/icons/smudge.svg"), "Doigt");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Burn, egui::include_image!("../../assets/icons/burn.svg"), "Densité +");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Dodge, egui::include_image!("../../assets/icons/dodge.svg"), "Densité -");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Sponge, egui::include_image!("../../assets/icons/sponge.svg"), "Éponge");
+                    ui.separator();
+
+                    // --- 5. Vectoriel & Texte ---
+                    add_tool_button(ui, &mut self.current_tool, Tool::Pen, egui::include_image!("../../assets/icons/pen.svg"), "Plume");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Shapes, egui::include_image!("../../assets/icons/shapes.svg"), "Formes");
+                    add_tool_button(ui, &mut self.current_tool, Tool::Text, egui::include_image!("../../assets/icons/text.svg"), "Texte");
+                    
+                    ui.add_space(10.0);
+                });
             });
         });
 
@@ -142,28 +158,21 @@ impl eframe::App for LimixApp {
                 ui.add_space(10.0);
 
                 if let Some(texture) = &self.texture {
-                    // 1. LES CAPTEURS EGUI
-                    // On transforme l'image statique en zone sensible au clic et au glissement
                     let image_widget = egui::Image::new(texture).sense(egui::Sense::click_and_drag());
                     let response = ui.add(image_widget);
 
-                    // 2. LA DÉTECTION DU MOUVEMENT
                     if response.dragged() || response.clicked() {
                         if let Some(pointer_pos) = response.interact_pointer_pos() {
                             
-                            // 3. LA MATHÉMATIQUE SPATIALE (Écran -> Moteur)
                             let local_x = pointer_pos.x - response.rect.min.x;
                             let local_y = pointer_pos.y - response.rect.min.y;
 
-                            // Vérification : La souris est-elle bien dans la zone de l'image ?
                             if local_x >= 0.0 && local_x < self.engine.width as f32 &&
                                local_y >= 0.0 && local_y < self.engine.height as f32 {
 
                                 let cx = local_x as usize;
                                 let cy = local_y as usize;
                                 let mut modified = false;
-
-                                // 4. DÉLÉGATION AUX MODULES OUTILS (Système Modulaire)
                                 let brush_radius = 2; 
 
                                 if self.current_tool == Tool::Brush {
@@ -176,7 +185,6 @@ impl eframe::App for LimixApp {
                                     }
                                 }
 
-                                // 5. LA BOUCLE TEMPS RÉEL : On recalcule instantanément si on a dessiné
                                 if modified {
                                     self.refresh_gpu_texture(ctx);
                                 }
@@ -187,4 +195,36 @@ impl eframe::App for LimixApp {
             });
         });
     }
+}
+
+
+// Notre usine à boutons (Version Propre et Contraste Parfait)
+fn add_tool_button(
+    ui: &mut egui::Ui,
+    current_tool: &mut Tool,
+    tool_variant: Tool,
+    icon: egui::ImageSource<'_>,
+    tooltip: &str,
+) {
+    let is_selected = *current_tool == tool_variant;
+
+    // --- LA MAGIE DU CONTRASTE ---
+    // Si sélectionné (Fond Orange) -> Icône Noire
+    // Si inactif (Fond Sombre)     -> Icône Blanche
+    let icon_color = if is_selected {
+        egui::Color32::BLACK // Tu peux aussi utiliser from_rgb(30, 30, 30) pour un noir plus doux
+    } else {
+        egui::Color32::WHITE
+    };
+
+    let img = egui::Image::new(icon).max_width(24.0).tint(icon_color);
+    
+    // On laisse egui gérer ses propres fonds de boutons proprement
+    if ui.add(egui::ImageButton::new(img).selected(is_selected))
+        .on_hover_text(tooltip)
+        .clicked()
+    {
+        *current_tool = tool_variant;
+    }
+    ui.add_space(5.0);
 }

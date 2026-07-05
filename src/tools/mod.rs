@@ -1,10 +1,44 @@
+// --- IL FAUT DÉCLARER LES FICHIERS PHYSIQUES ICI ---
 pub mod brush;
 pub mod eraser;
+// (Tu ajouteras pub mod fill; pub mod crop; etc. au fur et à mesure que tu créeras leurs fichiers)
 
-// On déplace l'énumération ici, c'est sa vraie place
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Tool {
-    Brush,
-    Eraser,
-    Selection,
+    // 1. Déplacement & Recadrage
+    Move, 
+    Crop,
+    
+    // 2. Sélection & Découpage
+    SelectionRect, 
+    SelectionEllipse, 
+    LassoFree, 
+    LassoPoly, 
+    LassoMagnetic, 
+    MagicWand, 
+    SelectQuick, 
+    RemoveBg,
+    
+    // 3. Peinture & Dessin
+    Brush, 
+    Pencil, 
+    Eraser, 
+    Fill, 
+    Gradient,
+    
+    // 4. Retouche & Couleurs
+    CloneStamp, 
+    HealingBrush, 
+    Eyedropper,
+    Sharpen, 
+    Blur, 
+    Smudge, 
+    Burn, 
+    Dodge, 
+    Sponge,
+    
+    // 5. Vectoriel & Texte
+    Pen, 
+    Shapes, 
+    Text,
 }
