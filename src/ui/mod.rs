@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::canvas::{Canvas, Rgba};
+use crate::core::canvas::{Canvas, Rgba};
 
 #[derive(PartialEq, Debug)]
 pub enum Tool {
