@@ -8,7 +8,7 @@
       }
 
       .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7, .st8, .st9, .st10, .st11, .st12, .st13 {
-        stroke: #000;
+        stroke: #FFFFFF;
         stroke-miterlimit: 10;
       }
 
@@ -57,7 +57,7 @@
       }
     </style>
   </defs>
-  <g id="move">
+  <g id="move" fill="#FFFFFF">
     <g>
       <polygon points="11.93 0 8.93 4.72 14.6 4.72 11.93 0"/>
       <polygon points="11.6 23.67 14.6 18.95 8.93 18.95 11.6 23.67"/>

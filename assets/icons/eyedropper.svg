@@ -8,7 +8,7 @@
       }
 
       .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7, .st8, .st9, .st10, .st11, .st12, .st13 {
-        stroke: #000;
+        stroke: #FFFFFF;
         stroke-miterlimit: 10;
       }
 
@@ -171,7 +171,7 @@
     <rect x="13.21" y="4.8" width=".11" height="15.08"/>
     <rect x="13.55" y="4.8" width=".03" height="15.08"/>
   </g>
-  <g id="eyedropper">
+  <g id="eyedropper" fill="#FFFFFF">
     <path class="st1" d="M20.24,2.72h0c.76.72.79,1.91.08,2.66l-12.78,13.52-2.5,1.94c-.72.76-1.58,1.14-2.33.43h0c-.76-.72-.64-1.53.08-2.29l2.24-2.91L17.57,2.8c.72-.76,1.91-.79,2.66-.08Z"/>
     <path class="st6" d="M14.57,1.22h3.77v9.12c0,1.04-.84,1.88-1.88,1.88h0c-1.04,0-1.88-.84-1.88-1.88V1.22h0Z" transform="translate(23.8 22.91) rotate(-136.62)"/>
     <rect class="st6" x="8.41" y="7.83" width="11.04" height="3.13" transform="translate(17.6 25.79) rotate(-136.62)"/>

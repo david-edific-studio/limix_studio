@@ -8,7 +8,7 @@
       }
 
       .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7, .st8, .st9, .st10, .st11, .st12, .st13 {
-        stroke: #000;
+        stroke: #FFFFFF;
         stroke-miterlimit: 10;
       }
 
@@ -182,7 +182,7 @@
       <rect x="2.33" y="20.94" width="18.54" height="1.7"/>
     </g>
   </g>
-  <g id="sharpen">
+  <g id="sharpen" fill="#FFFFFF">
     <polygon points="2.33 22.64 20.87 22.64 11.6 1.03 2.33 22.64"/>
   </g>
   <g id="blur" class="st14">

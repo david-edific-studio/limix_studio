@@ -8,7 +8,7 @@
       }
 
       .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7, .st8, .st9, .st10, .st11, .st12, .st13 {
-        stroke: #000;
+        stroke: #FFFFFF;
         stroke-miterlimit: 10;
       }
 
@@ -156,7 +156,7 @@
       <path class="st4" d="M8.12,7.66s-3.09-3.97-1.04-4.97,5.21,4.61,5.21,7.23"/>
     </g>
   </g>
-  <g id="gradient">
+  <g id="gradient" fill="#FFFFFF">
     <rect class="st11" x="2.14" y="4.38" width="18.92" height="14.91"/>
     <rect x="1.71" y="4.38" width="3.39" height="15.08"/>
     <rect x="5.21" y="4.21" width="1.12" height="15.08"/>

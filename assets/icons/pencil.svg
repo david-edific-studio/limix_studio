@@ -136,7 +136,7 @@
       <path d="M10.08,13.73s1.35.1,1.69,1.52c2.19-2.6,8.33-11.52,8.33-11.52l-.46-.65-9.56,10.64Z"/>
     </g>
   </g>
-  <g id="pencil">
+  <g id="pencil" fill="#FFFFFF">
     <g>
       <rect class="st3" x="10.02" y="2.65" width="3.99" height="17.76" transform="translate(15 27.92) rotate(-144.13)"/>
       <rect class="st3" x="16.29" y="1.62" width="3.99" height="2.49" transform="translate(31.42 15.91) rotate(-144.13)"/>

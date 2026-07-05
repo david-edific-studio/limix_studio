@@ -8,7 +8,7 @@
       }
 
       .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7, .st8, .st9, .st10, .st11, .st12, .st13 {
-        stroke: #000;
+        stroke: #FFFFFF;
         stroke-miterlimit: 10;
       }
 
@@ -176,7 +176,7 @@
     <path class="st6" d="M14.57,1.22h3.77v9.12c0,1.04-.84,1.88-1.88,1.88h0c-1.04,0-1.88-.84-1.88-1.88V1.22h0Z" transform="translate(23.8 22.91) rotate(-136.62)"/>
     <rect class="st6" x="8.41" y="7.83" width="11.04" height="3.13" transform="translate(17.6 25.79) rotate(-136.62)"/>
   </g>
-  <g id="clone_x5F_stamp">
+  <g id="clone_x5F_stamp" fill="#FFFFFF">
     <g>
       <path d="M2.33,15.72s1.59-1.42,7.54-1.13l.28-4.82s-3.35-.68-3.29-4.54S9.87,1.03,11.29,1.03s4.31.79,4.37,4.03c.06,3.23-1.87,4.54-2.84,4.76.17,2.84.34,4.65.34,4.65,0,0,6.52.17,7.71,1.25v3.91H2.33v-3.91Z"/>
       <rect x="2.33" y="20.94" width="18.54" height="1.7"/>

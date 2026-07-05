@@ -8,7 +8,7 @@
       }
 
       .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7, .st8, .st9, .st10, .st11, .st12, .st13 {
-        stroke: #000;
+        stroke: #FFFFFF;
         stroke-miterlimit: 10;
       }
 
@@ -98,7 +98,7 @@
     <polygon class="st1" points="7.36 15.84 1.23 2.99 14.31 10.42 21.98 6.35 18.5 16.79 7.36 15.84"/>
     <path class="st1" d="M1.23,19.54s3.7-4.78,4.92-6.22,3.05-1.03,3.64-.26.83,1.78,0,2.89-4.02,6.01-4.02,6.01"/>
   </g>
-  <g id="magic_x5F_wand">
+  <g id="magic_x5F_wand" fill="#FFFFFF">
     <rect class="st1" x="8.77" y="3.95" width="2.83" height="19.14" rx="1.41" ry="1.41" transform="translate(12.23 -3.28) rotate(43.92)"/>
     <rect class="st6" x="6.28" y="10.13" width="2.83" height="11.96" rx="1.41" ry="1.41" transform="translate(13.32 -.83) rotate(43.92)"/>
     <path d="M8.64,2.23c.83,1.67.96,2.17,2.96,2.96-1.96.96-2.13,1.63-2.88,2.88-.79-1.75-1.17-1.92-2.79-2.79,1.33-.54,2.13-1,2.71-3.04Z"/>

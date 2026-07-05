@@ -8,7 +8,7 @@
       }
 
       .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7, .st8, .st9, .st10, .st11, .st12, .st13 {
-        stroke: #000;
+        stroke: #FFFFFF;
         stroke-miterlimit: 10;
       }
 
@@ -143,7 +143,7 @@
       <polygon class="st9" points="4.3 22.21 8.05 20.27 4.96 18.03 4.3 22.21"/>
     </g>
   </g>
-  <g id="eraser">
+  <g id="eraser" fill="#FFFFFF">
     <rect class="st1" x="7.97" y="2.39" width="7.02" height="16.5" transform="translate(11.97 26.29) rotate(-134.66)"/>
     <rect class="st6" x="10.66" y="3.52" width="7.02" height="8.93" transform="translate(18.45 23.67) rotate(-134.66)"/>
     <rect class="st6" x="3.14" y="18.94" width="17.59" height=".82"/>

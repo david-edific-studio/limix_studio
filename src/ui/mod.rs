@@ -217,7 +217,10 @@ fn add_tool_button(
         egui::Color32::WHITE
     };
 
-    let img = egui::Image::new(icon).max_width(24.0).tint(icon_color);
+    // On force une taille mathématique stricte (24px sur 24px)
+    let img = egui::Image::new(icon)
+        .fit_to_exact_size(egui::vec2(24.0, 24.0)) 
+        .tint(icon_color);
     
     // On laisse egui gérer ses propres fonds de boutons proprement
     if ui.add(egui::ImageButton::new(img).selected(is_selected))
