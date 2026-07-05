@@ -1,12 +1,6 @@
 use eframe::egui;
 use crate::core::canvas::{Canvas, Rgba};
-
-#[derive(PartialEq, Debug)]
-pub enum Tool {
-    Brush,
-    Eraser,
-    Selection,
-}
+use crate::tools::Tool; // Importation du Tool depuis sa nouvelle maison modulaire
 
 pub struct LimixApp {
     pub engine: Canvas,
@@ -17,7 +11,9 @@ pub struct LimixApp {
 }
 
 impl LimixApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // 1. Initialiser le chargeur d'images (Indispensable pour lire les SVG)
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         let mut engine = Canvas::new(800, 600);
         engine.add_layer("Arrière-plan");
         engine.add_layer("Tracé Principal");
@@ -70,18 +66,49 @@ impl eframe::App for LimixApp {
                     ui.separator();
                     if ui.button("Quitter").clicked() { ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
                 });
-                ui.menu_button("Édition", |ui| {});
+                ui.menu_button("Édition", |_ui| {});
             });
         });
 
         egui::SidePanel::left("toolbar").resizable(false).exact_width(45.0).show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(10.0);
-                ui.selectable_value(&mut self.current_tool, Tool::Brush, "🖌").on_hover_text("Pinceau Rouge");
+
+                // --- OUTIL PINCEAU ---
+                let brush_img = egui::Image::new(egui::include_image!("../../assets/icons/brush.svg"))
+                    .max_width(24.0) // On force la taille à 24px
+                    .tint(egui::Color32::WHITE);
+                if ui.add(egui::ImageButton::new(brush_img).selected(self.current_tool == Tool::Brush))
+                    .on_hover_text("Pinceau")
+                    .clicked() 
+                {
+                    self.current_tool = Tool::Brush;
+                }
                 ui.add_space(5.0);
-                ui.selectable_value(&mut self.current_tool, Tool::Eraser, "🧽").on_hover_text("Gomme");
+
+                // --- OUTIL GOMME ---
+                let eraser_img = egui::Image::new(egui::include_image!("../../assets/icons/eraser.svg"))
+                    .max_width(24.0)
+                    .tint(egui::Color32::WHITE);
+                if ui.add(egui::ImageButton::new(eraser_img).selected(self.current_tool == Tool::Eraser))
+                    .on_hover_text("Gomme")
+                    .clicked() 
+                {
+                    self.current_tool = Tool::Eraser;
+                }
                 ui.add_space(5.0);
-                ui.selectable_value(&mut self.current_tool, Tool::Selection, "⬚").on_hover_text("Sélection");
+
+                // --- OUTIL SÉLECTION ---
+                // (Assure-toi d'avoir un fichier nommé 'select_rect.svg')
+                let sel_img = egui::Image::new(egui::include_image!("../../assets/icons/select_rect.svg"))
+                    .max_width(24.0)
+                    .tint(egui::Color32::WHITE);
+                if ui.add(egui::ImageButton::new(sel_img).selected(self.current_tool == Tool::Selection))
+                    .on_hover_text("Sélection")
+                    .clicked() 
+                {
+                    self.current_tool = Tool::Selection;
+                }
             });
         });
 
@@ -136,31 +163,16 @@ impl eframe::App for LimixApp {
                                 let cy = local_y as usize;
                                 let mut modified = false;
 
-                                // 4. APPLICATION DE L'ÉPAISSEUR DU PINCEAU (5x5 pixels)
+                                // 4. DÉLÉGATION AUX MODULES OUTILS (Système Modulaire)
                                 let brush_radius = 2; 
 
-                                for dy in -brush_radius..=brush_radius {
-                                    for dx in -brush_radius..=brush_radius {
-                                        let px = cx as isize + dx;
-                                        let py = cy as isize + dy;
-
-                                        // On s'assure que le pinceau ne déborde pas des limites de l'image
-                                        if px >= 0 && px < self.engine.width as isize &&
-                                           py >= 0 && py < self.engine.height as isize {
-                                            
-                                            // Indexation linéaire pure
-                                            let index = (py as usize) * self.engine.width + (px as usize);
-                                            
-                                            if self.current_tool == Tool::Brush {
-                                                // Injection d'un pixel ROUGE OPAQUE
-                                                self.engine.layers[self.active_layer].pixels[index] = Rgba { r: 255, g: 50, b: 50, a: 255 };
-                                                modified = true;
-                                            } else if self.current_tool == Tool::Eraser {
-                                                // GOMME : Injection d'un pixel TRANSPARENT (Alpha = 0)
-                                                self.engine.layers[self.active_layer].pixels[index] = Rgba { r: 0, g: 0, b: 0, a: 0 };
-                                                modified = true;
-                                            }
-                                        }
+                                if self.current_tool == Tool::Brush {
+                                    if crate::tools::brush::apply(&mut self.engine, self.active_layer, cx, cy, brush_radius) {
+                                        modified = true;
+                                    }
+                                } else if self.current_tool == Tool::Eraser {
+                                    if crate::tools::eraser::apply(&mut self.engine, self.active_layer, cx, cy, brush_radius) {
+                                        modified = true;
                                     }
                                 }
 

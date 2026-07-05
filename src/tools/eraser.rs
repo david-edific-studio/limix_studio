@@ -10,12 +10,11 @@ pub fn apply(canvas: &mut Canvas, active_layer: usize, cx: usize, cy: usize, rad
             let px = cx as isize + dx;
             let py = cy as isize + dy;
 
-            // Vérification des limites de l'image
             if px >= 0 && px < width && py >= 0 && py < height {
                 let index = (py as usize) * (width as usize) + (px as usize);
                 
-                // Injection du pixel rouge opaque (pour le MVP)
-                canvas.layers[active_layer].pixels[index] = Rgba { r: 255, g: 50, b: 50, a: 255 };
+                // GOMME : Injection d'un pixel transparent
+                canvas.layers[active_layer].pixels[index] = Rgba { r: 0, g: 0, b: 0, a: 0 };
                 modified = true;
             }
         }
