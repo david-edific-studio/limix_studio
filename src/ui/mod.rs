@@ -6,11 +6,10 @@ use crate::tools::Tool;
 
 #[derive(PartialEq)]
 pub enum AppState {
-    WelcomeScreen, // La page d'accueil moderne
-    Workspace,     // L'éditeur de dessin
+    WelcomeScreen, 
+    Workspace,     
 }
 
-// --- LA MÉMOIRE DES PARAMÈTRES AVANT CRÉATION ---
 pub struct NewProjectParams {
     pub width: usize,
     pub height: usize,
@@ -38,9 +37,15 @@ pub struct LimixApp {
     pub texture: Option<egui::TextureHandle>,
     pub current_tool: Tool,
     pub active_layer: usize,
-    pub brush_size: f32,
-    pub zoom: f32,
     
+    pub brush_size: f32,
+    pub brush_hardness: f32,
+    pub brush_opacity: f32,
+    pub brush_flow: f32,
+    pub primary_color: [f32; 3],
+    pub last_draw_pos: Option<(f32, f32)>, 
+    
+    pub zoom: f32,
     pub state: AppState,       
     pub show_settings: bool,   
     pub new_proj_params: NewProjectParams, 
@@ -60,9 +65,15 @@ impl LimixApp {
             texture: None,
             current_tool: Tool::Brush,
             active_layer: 1,
-            brush_size: 10.0,
-            zoom: 1.0,
             
+            brush_size: 40.0,
+            brush_hardness: 50.0,
+            brush_opacity: 100.0,
+            brush_flow: 100.0,
+            primary_color: [0.0, 0.0, 0.0], 
+            last_draw_pos: None,
+            
+            zoom: 1.0,
             state: AppState::WelcomeScreen,
             show_settings: false,
             new_proj_params: NewProjectParams::default(),
@@ -82,7 +93,12 @@ impl LimixApp {
             [self.engine.width, self.engine.height],
             &raw_pixels,
         );
-        self.texture = Some(ctx.load_texture("canvas_render", color_image, egui::TextureOptions::LINEAR));
+
+        if let Some(tex) = &mut self.texture {
+            tex.set(color_image, egui::TextureOptions::NEAREST);
+        } else {
+            self.texture = Some(ctx.load_texture("canvas_render", color_image, egui::TextureOptions::NEAREST));
+        }
     }
 }
 
@@ -95,27 +111,17 @@ impl eframe::App for LimixApp {
         
         match self.state {
 
-            // =========================================================================================
-            // ÉTAT 1 : LA PAGE D'ACCUEIL
-            // =========================================================================================
             AppState::WelcomeScreen => {
                 crate::ui::welcome::show(self, ctx);
             }
 
-            // =========================================================================================
-            // ÉTAT 2 : L'ESPACE DE TRAVAIL
-            // =========================================================================================
             AppState::Workspace => {
 
                 egui::TopBottomPanel::top("top_menu").show(ctx, |ui| {
                     ui.add_space(2.0); 
                     ui.horizontal(|ui| {
-                        
-                        if ui.button("🏠 Accueil").clicked() {
-                            self.state = AppState::WelcomeScreen;
-                        }
+                        if ui.button("🏠 Accueil").clicked() { self.state = AppState::WelcomeScreen; }
                         ui.separator();
-                        
                         ui.menu_button("Fichier", |ui| {
                             if ui.button("Nouveau...").clicked() {
                                 self.new_proj_params.show_modal = true;
@@ -126,7 +132,6 @@ impl eframe::App for LimixApp {
                             if ui.button("Enregistrer").clicked() {}
                             if ui.button("Enregistrer sous...").clicked() {}
                             ui.separator();
-                            
                             ui.menu_button("Exporter", |ui| {
                                 if ui.button("Exporter en PNG").clicked() {}
                                 if ui.button("Exporter en JPEG").clicked() {}
@@ -134,16 +139,12 @@ impl eframe::App for LimixApp {
                                 if ui.button("Exporter en SVG").clicked() {}
                                 if ui.button("Exporter en PDF").clicked() {}
                             });
-                            
                             if ui.button("Importer...").clicked() {}
                             ui.separator();
                             if ui.button("Propriétés du document").clicked() {}
                             ui.separator();
-                            if ui.button("Quitter").clicked() { 
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close); 
-                            }
+                            if ui.button("Quitter").clicked() { ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
                         });
-
                         ui.menu_button("Édition", |ui| {
                             if ui.button("Annuler (Undo)").clicked() {}
                             if ui.button("Rétablir (Redo)").clicked() {}
@@ -158,7 +159,6 @@ impl eframe::App for LimixApp {
                             ui.separator();
                             if ui.button("Préférences").clicked() {}
                         });
-
                         ui.menu_button("Image", |ui| {
                             if ui.button("Mode colorimétrique...").clicked() {}
                             ui.separator();
@@ -169,7 +169,6 @@ impl eframe::App for LimixApp {
                             if ui.button("Rogner (Trim)...").clicked() {}
                             if ui.button("Rotation du canevas").clicked() {}
                         });
-
                         ui.menu_button("Calque", |ui| {
                             if ui.button("Nouveau calque").clicked() {}
                             if ui.button("Dupliquer le calque").clicked() {}
@@ -181,7 +180,6 @@ impl eframe::App for LimixApp {
                             if ui.button("Style de calque...").clicked() {}
                             if ui.button("Masque de calque...").clicked() {}
                         });
-
                         ui.menu_button("Sélection", |ui| {
                             if ui.button("Tout sélectionner").clicked() {}
                             if ui.button("Désélectionner").clicked() {}
@@ -194,28 +192,23 @@ impl eframe::App for LimixApp {
                             ui.separator();
                             if ui.button("Enregistrer la sélection").clicked() {}
                         });
-
                         ui.menu_button("Filtre", |ui| {
                             if ui.button("Dernier filtre appliqué (Ctrl+F)").clicked() {}
                             ui.separator();
                             if ui.button("Galerie de filtres...").clicked() {}
                         });
-
                         ui.menu_button("Affichage", |ui| {
                             if ui.button("Zoom +").clicked() {}
                             if ui.button("Zoom -").clicked() {}
                             if ui.button("Ajuster à l'écran").clicked() {}
                             ui.separator();
-                            
                             let mut dummy_bool = false; 
                             ui.checkbox(&mut dummy_bool, "Règles");
                             ui.checkbox(&mut dummy_bool, "Repères (guides)");
                             ui.checkbox(&mut dummy_bool, "Grille");
                             ui.separator();
-                            
                             if ui.button("Mode plein écran").clicked() {}
                         });
-
                         ui.menu_button("Fenêtre", |ui| {
                             let mut tools_visible = true; 
                             ui.checkbox(&mut tools_visible, "Panneau Outils");
@@ -225,7 +218,6 @@ impl eframe::App for LimixApp {
                             ui.checkbox(&mut dummy_bool, "Panneau Couleurs");
                             ui.checkbox(&mut dummy_bool, "Panneau Historique");
                         });
-
                     });
                     ui.add_space(2.0);
                 });
@@ -239,11 +231,16 @@ impl eframe::App for LimixApp {
                         match self.current_tool {
                             Tool::Brush | Tool::Pencil | Tool::Eraser => {
                                 ui.label("Taille :");
-                                ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=100.0).text("px"));
+                                ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=500.0).text("px"));
+                                ui.separator();
+                                ui.label("Dureté :");
+                                ui.add(egui::Slider::new(&mut self.brush_hardness, 0.0..=100.0).text("%"));
                                 ui.separator();
                                 ui.label("Opacité :");
-                                let mut dummy_opacity = 100.0;
-                                ui.add(egui::Slider::new(&mut dummy_opacity, 0.0..=100.0).text("%"));
+                                ui.add(egui::Slider::new(&mut self.brush_opacity, 0.0..=100.0).text("%"));
+                                ui.separator();
+                                ui.label("Flux :");
+                                ui.add(egui::Slider::new(&mut self.brush_flow, 0.0..=100.0).text("%"));
                             }
                             Tool::Text => {
                                 ui.label("Police :");
@@ -262,19 +259,15 @@ impl eframe::App for LimixApp {
                     ui.horizontal_centered(|ui| {
                         ui.add_space(10.0);
                         ui.label("Zoom :");
-                        
                         if ui.button("➖").clicked() {
                             self.zoom -= 0.1;
                             if self.zoom < 0.1 { self.zoom = 0.1; }
                         }
-                        
                         ui.label(format!("{} %", (self.zoom * 100.0).round()));
-                        
                         if ui.button("➕").clicked() {
                             self.zoom += 0.1;
                             if self.zoom > 5.0 { self.zoom = 5.0; }
                         }
-                        
                         ui.separator();
                         ui.label(format!("Document : {} x {} px", self.engine.width, self.engine.height));
                     });
@@ -320,65 +313,162 @@ impl eframe::App for LimixApp {
                     });
                 });
 
-                egui::SidePanel::right("layers_panel").resizable(true).min_width(200.0).show(ctx, |ui| {
-                    ui.heading("Calques");
+                // ==============================================================================
+                // LE NOUVEAU PANNEAU DROIT (AGENCEMENT PRO)
+                // ==============================================================================
+                egui::SidePanel::right("layers_panel").resizable(true).min_width(260.0).show(ctx, |ui| {
+                    
+                    // --- 1. SECTION COULEURS ---
+                    ui.add_space(10.0);
+                    ui.heading("Couleurs");
                     ui.separator();
                     
-                    let layer_count = self.engine.layers.len();
-                    for i in (0..layer_count).rev() {
-                        let layer = &self.engine.layers[i];
-                        ui.horizontal(|ui| {
-                            let mut visible = true; 
-                            ui.checkbox(&mut visible, "");
-                            ui.selectable_value(&mut self.active_layer, i, &layer.name);
-                        });
-                    }
+                    egui::Grid::new("color_grid").num_columns(2).spacing([10.0, 10.0]).show(ui, |ui| {
+                        ui.label("Active :");
+                        ui.color_edit_button_rgb(&mut self.primary_color);
+                        ui.end_row();
+                    });
                     
-                    ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                        ui.add_space(10.0);
-                        if ui.button("+ Nouveau Calque").clicked() {
-                            self.engine.add_layer(&format!("Calque {}", layer_count + 1));
-                            self.active_layer = layer_count;
+                    ui.add_space(5.0);
+                    ui.label("Nuancier Rapide :");
+                    ui.add_space(5.0);
+                    ui.horizontal_wrapped(|ui| {
+                        let swatches = [
+                            [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+                            [0.0, 0.5, 1.0], [1.0, 0.5, 0.0], [0.8, 0.0, 1.0], [1.0, 0.0, 0.5],
+                        ];
+                        for swatch in swatches {
+                            let c = egui::Color32::from_rgb(
+                                (swatch[0] * 255.0) as u8, 
+                                (swatch[1] * 255.0) as u8, 
+                                (swatch[2] * 255.0) as u8
+                            );
+                            if ui.add(egui::Button::new("").fill(c).min_size(egui::vec2(22.0, 22.0))).clicked() {
+                                self.primary_color = swatch;
+                            }
                         }
+                    });
+
+                    ui.add_space(15.0);
+
+                    // --- 2. SECTION CALQUES (Entête) ---
+                    ui.heading("Calques");
+                    ui.separator();
+
+                    egui::Grid::new("layer_props_grid").num_columns(2).spacing([10.0, 10.0]).show(ui, |ui| {
+                        ui.label("Mode :");
+                        let mut dummy_blend = 0;
+                        egui::ComboBox::from_id_source("blend_mode")
+                            .selected_text("Normal")
+                            .width(120.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut dummy_blend, 0, "Normal");
+                                ui.selectable_value(&mut dummy_blend, 1, "Multiplier");
+                                ui.selectable_value(&mut dummy_blend, 2, "Écran");
+                                ui.selectable_value(&mut dummy_blend, 3, "Incrustation");
+                            });
+                        ui.end_row();
+
+                        ui.label("Opacité :");
+                        let mut dummy_opacity = 100.0;
+                        ui.add(egui::Slider::new(&mut dummy_opacity, 0.0..=100.0).text("%"));
+                        ui.end_row();
+                    });
+
+                    ui.separator();
+                    
+                    // --- 3. BARRE D'ACTIONS RAPIDES ET LISTE ---
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                        
+                        ui.add_space(10.0);
+                        
+                        // Boutons d'actions répartis uniformément grâce aux colonnes
+                        ui.columns(4, |cols| {
+                            cols[0].vertical_centered_justified(|ui| {
+                                if ui.button("➕").on_hover_text("Nouveau calque").clicked() {
+                                    self.engine.add_layer(&format!("Calque {}", self.engine.layers.len() + 1));
+                                    self.active_layer = self.engine.layers.len() - 1;
+                                }
+                            });
+                            cols[1].vertical_centered_justified(|ui| {
+                                if ui.button("📄").on_hover_text("Dupliquer le calque").clicked() {}
+                            });
+                            cols[2].vertical_centered_justified(|ui| {
+                                if ui.button("⬲").on_hover_text("Fusionner vers le bas").clicked() {}
+                            });
+                            cols[3].vertical_centered_justified(|ui| {
+                                if ui.button("🗑").on_hover_text("Supprimer le calque").clicked() {}
+                            });
+                        });
+
+                        ui.add_space(5.0);
+                        ui.separator();
+
+                        // La liste prend l'espace restant au-dessus des boutons
+                        ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                                let layer_count = self.engine.layers.len();
+                                for i in (0..layer_count).rev() {
+                                    let layer = &self.engine.layers[i];
+                                    let is_active = self.active_layer == i;
+
+                                    // Un design aéré pour chaque calque
+                                    egui::Frame::none()
+                                        .fill(if is_active { egui::Color32::from_rgb(60, 60, 60) } else { egui::Color32::TRANSPARENT })
+                                        .inner_margin(egui::Margin::same(4.0))
+                                        .rounding(4.0)
+                                        .show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                let mut is_visible = true;
+                                                ui.toggle_value(&mut is_visible, "👁").on_hover_text("Visibilité");
+                                                
+                                                let mut is_locked = false;
+                                                ui.toggle_value(&mut is_locked, "🔓").on_hover_text("Verrouiller/Déverrouiller");
+
+                                                // Remplissage complet de la ligne par le nom du calque
+                                                if ui.add_sized(
+                                                    [ui.available_width(), 20.0], 
+                                                    egui::SelectableLabel::new(is_active, &layer.name)
+                                                ).clicked() {
+                                                    self.active_layer = i;
+                                                }
+                                            });
+                                        });
+                                }
+                            });
+                        });
                     });
                 });
 
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    // L'étiquette de l'outil et du calque reste en haut, fixée
                     ui.vertical_centered(|ui| {
                         ui.add_space(10.0);
                         ui.label(format!("Outil : {:?} | Calque : {}", self.current_tool, self.engine.layers[self.active_layer].name));
                         ui.add_space(10.0);
                     });
 
-                    // ---> LE CALCUL MAGIQUE DE CADRAGE (Auto-Fit) <---
                     let available_space = ui.available_size();
                     
                     if self.zoom <= 0.0 {
                         let zoom_x = available_space.x / self.engine.width as f32;
                         let zoom_y = available_space.y / self.engine.height as f32;
                         
-                        // On prend le plus petit pour que tout rentre, et on laisse 10% de marge (0.9)
                         self.zoom = zoom_x.min(zoom_y) * 0.9;
                         self.zoom = self.zoom.clamp(0.05, 5.0); 
                     }
 
-                    // On enferme la zone de dessin dans une boîte avec Scrollbars
                     egui::ScrollArea::both()
                         .auto_shrink([false, false]) 
                         .show(ui, |ui| {
                             
-                        // --- RÉTABLISSEMENT DU ZOOM MOLETTE ICI ! ---
                         let (zoom_delta, ctrl_down) = ui.input(|i| (i.raw_scroll_delta.y, i.modifiers.ctrl));
                         if ctrl_down && zoom_delta != 0.0 {
                             self.zoom += zoom_delta * 0.005; 
                             self.zoom = self.zoom.clamp(0.05, 5.0); 
                         }
                             
-                        // ---> LE CENTRAGE ABSOLU DE LA FEUILLE <---
                         ui.centered_and_justified(|ui| { 
                             if let Some(texture) = &self.texture {
-                                // LA TOILE RÉAGIT AU ZOOM ET A SA NOUVELLE VRAIE TAILLE
                                 let current_width = self.engine.width as f32 * self.zoom;
                                 let current_height = self.engine.height as f32 * self.zoom;
 
@@ -388,39 +478,68 @@ impl eframe::App for LimixApp {
 
                                 let response = ui.add(image_widget);
 
-                                // --- TA LOGIQUE DE DESSIN INTACTE ---
-                                if response.dragged() || response.clicked() {
-                                    if let Some(pointer_pos) = response.interact_pointer_pos() {
-                                        
-                                        // Calcul corrigé pour le Zoom
-                                        let local_x = (pointer_pos.x - response.rect.min.x) / self.zoom;
-                                        let local_y = (pointer_pos.y - response.rect.min.y) / self.zoom;
+                                let image_top_left_x = response.rect.center().x - (current_width / 2.0);
+                                let image_top_left_y = response.rect.center().y - (current_height / 2.0);
+                                let image_rect = egui::Rect::from_min_size(egui::pos2(image_top_left_x, image_top_left_y), egui::vec2(current_width, current_height));
 
-                                        if local_x >= 0.0 && local_x < self.engine.width as f32 &&
-                                           local_y >= 0.0 && local_y < self.engine.height as f32 {
-
-                                            let cx = local_x as usize;
-                                            let cy = local_y as usize;
-                                            let mut modified = false;
+                                let pointer_pos = ui.input(|i| i.pointer.latest_pos());
+                                if let Some(pos) = pointer_pos {
+                                    if image_rect.contains(pos) || response.dragged() {
+                                        if matches!(self.current_tool, Tool::Brush | Tool::Eraser) {
+                                            let screen_radius = (self.brush_size / 2.0) * self.zoom;
                                             
-                                            // LA CORRECTION FATALE : isize au lieu de usize !
-                                            let current_radius = self.brush_size as isize; 
-
-                                            if self.current_tool == Tool::Brush {
-                                                if crate::tools::brush::apply(&mut self.engine, self.active_layer, cx, cy, current_radius) {
-                                                    modified = true;
-                                                }
-                                            } else if self.current_tool == Tool::Eraser {
-                                                if crate::tools::eraser::apply(&mut self.engine, self.active_layer, cx, cy, current_radius) {
-                                                    modified = true;
-                                                }
-                                            }
-
-                                            if modified {
-                                                self.refresh_gpu_texture(ctx);
-                                            }
+                                            ui.painter().circle_stroke(
+                                                pos, screen_radius, 
+                                                egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200))
+                                            );
+                                            ui.painter().circle_stroke(
+                                                pos, screen_radius + 1.0, 
+                                                egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 150))
+                                            );
+                                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                                         }
                                     }
+                                }
+
+                                if response.dragged() || response.clicked() {
+                                    if let Some(p_pos) = response.interact_pointer_pos() {
+                                        
+                                        let local_x = (p_pos.x - image_top_left_x) / self.zoom;
+                                        let local_y = (p_pos.y - image_top_left_y) / self.zoom;
+
+                                        let (last_x, last_y) = self.last_draw_pos.unwrap_or((local_x, local_y));
+                                        let mut modified = false;
+                                        
+                                        if self.current_tool == Tool::Brush {
+                                            if crate::tools::brush::apply(
+                                                &mut self.engine, self.active_layer, 
+                                                last_x, last_y, local_x, local_y, 
+                                                self.brush_size, self.brush_hardness, 
+                                                self.brush_opacity, self.brush_flow,
+                                                self.primary_color 
+                                            ) {
+                                                modified = true;
+                                            }
+                                        } else if self.current_tool == Tool::Eraser {
+                                            if crate::tools::eraser::apply(
+                                                &mut self.engine, self.active_layer, 
+                                                last_x, last_y, local_x, local_y, 
+                                                self.brush_size, self.brush_hardness, 
+                                                self.brush_opacity, self.brush_flow
+                                            ) {
+                                                modified = true;
+                                            }
+                                        }
+
+                                        if modified {
+                                            self.refresh_gpu_texture(ctx);
+                                            ctx.request_repaint(); 
+                                        }
+                                        
+                                        self.last_draw_pos = Some((local_x, local_y));
+                                    }
+                                } else {
+                                    self.last_draw_pos = None;
                                 }
                             }
                         });
@@ -431,7 +550,6 @@ impl eframe::App for LimixApp {
     }
 }
 
-// Notre usine à boutons (Version Propre et Contraste Parfait)
 fn add_tool_button(
     ui: &mut egui::Ui,
     current_tool: &mut Tool,
@@ -441,19 +559,16 @@ fn add_tool_button(
 ) {
     let is_selected = *current_tool == tool_variant;
 
-    // --- LA MAGIE DU CONTRASTE ---
     let icon_color = if is_selected {
         egui::Color32::BLACK 
     } else {
         egui::Color32::WHITE
     };
 
-    // On force une taille mathématique stricte (24px sur 24px)
     let img = egui::Image::new(icon)
         .fit_to_exact_size(egui::vec2(24.0, 24.0)) 
         .tint(icon_color);
     
-    // On laisse egui gérer ses propres fonds de boutons proprement
     if ui.add(egui::ImageButton::new(img).selected(is_selected))
         .on_hover_text(tooltip)
         .clicked()
