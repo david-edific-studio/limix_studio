@@ -1,7 +1,7 @@
- pub mod welcome;
+pub mod welcome;
 
 use eframe::egui;
-use crate::core::canvas::Canvas;
+use crate::core::canvas::{Canvas, Rgba};
 use crate::tools::Tool;
 
 #[derive(PartialEq)]
@@ -343,28 +343,59 @@ impl eframe::App for LimixApp {
                         .max_height(available_height - bottom_bar_height)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
+                            
+                            // CALCUL INTELLIGENT DE L'ARBORESCENCE (Héritage Visibilité + Repli)
                             let mut visible_indices = Vec::new();
                             let mut current_collapsed_depth = None;
+                            let mut current_hidden_depth = None;
                             
-                            for i in 0..self.engine.layers.len() {
+                            // On parcourt de haut en bas visuellement (len - 1 down to 0)
+                            for i in (0..self.engine.layers.len()).rev() {
                                 let layer = &self.engine.layers[i];
+                                
+                                // Gérer les dossiers repliés
                                 if let Some(cd) = current_collapsed_depth {
                                     if layer.depth > cd { continue; } 
                                     else { current_collapsed_depth = None; }
                                 }
-                                visible_indices.push(i);
-                                if layer.is_folder && !layer.expanded { current_collapsed_depth = Some(layer.depth); }
+
+                                // Gérer les dossiers invisibles (l'œil fermé) pour griser les enfants visuellement
+                                if let Some(hd) = current_hidden_depth {
+                                    if layer.depth > hd { 
+                                        // On est dans un dossier caché. On ne l'ajoute pas à la liste visuelle !
+                                        // Wait, le calque enfant DOIT s'afficher dans l'UI (en grisé), sauf s'il est replié
+                                    } else { 
+                                        current_hidden_depth = None; 
+                                    }
+                                }
+
+                                visible_indices.push((i, current_hidden_depth.is_some()));
+                                
+                                if layer.is_folder {
+                                    if !layer.expanded && current_collapsed_depth.is_none() { 
+                                        current_collapsed_depth = Some(layer.depth); 
+                                    }
+                                    if !layer.visible && current_hidden_depth.is_none() {
+                                        current_hidden_depth = Some(layer.depth);
+                                    }
+                                }
                             }
 
-                            for &i in visible_indices.iter().rev() {
+                            // AFFICHAGE DU HAUT VERS LE BAS
+                            for &(i, is_inherited_hidden) in &visible_indices {
                                 let layer = &mut self.engine.layers[i];
                                 let is_active = self.active_layer == i;
-
                                 let row_height = 26.0;
+
                                 let (rect, response) = ui.allocate_exact_size(
                                     egui::vec2(ui.available_width(), row_height), 
                                     egui::Sense::click_and_drag()
                                 );
+
+                                // PLUS DE CURSEUR D'ÉCRITURE ! Forçage du curseur de flèche sur la ligne.
+                                if response.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
+                                }
 
                                 if response.drag_started() { self.dragging_layer = Some(i); }
 
@@ -375,46 +406,45 @@ impl eframe::App for LimixApp {
                                 ui.painter().rect_filled(rect, 4.0, bg_color);
 
                                 // =========================================================
-                                // DESIGN PRO: ALIGNEMENT & INDENTATION DES CALQUES
+                                // DESIGN PRO: ALIGNEMENT & INDENTATION PARFAITE DES CALQUES
                                 // =========================================================
                                 ui.allocate_ui_at_rect(rect, |ui| {
                                     ui.horizontal(|ui| {
-                                        // 1. Marge fixe initiale pour aérer la bordure gauche
                                         ui.add_space(8.0);
                                         
-                                        // 2. Indentation stricte basée sur la profondeur du calque (dossier)
+                                        // Indentation basée sur la profondeur
                                         let indentation = layer.depth as f32 * 20.0;
                                         ui.add_space(indentation);
 
-                                        // 3. Flèche de dossier OU espace vide de même largeur pour l'alignement parfait
+                                        // Flèches v et > (Protégées contre le curseur d'édition texte + Safe Linux)
                                         let arrow_width = 16.0;
                                         if layer.is_folder {
-                                            let arrow = if layer.expanded { "▼" } else { "▶" };
-                                            if ui.add_sized([arrow_width, row_height], egui::Label::new(arrow).sense(egui::Sense::click())).clicked() {
-                                                layer.expanded = !layer.expanded;
-                                            }
+                                            let arrow = if layer.expanded { "v" } else { ">" };
+                                            let arrow_resp = ui.add_sized(
+                                                [arrow_width, row_height], 
+                                                egui::Label::new(egui::RichText::new(arrow).strong()).selectable(false).sense(egui::Sense::click())
+                                            );
+                                            if arrow_resp.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
+                                            if arrow_resp.clicked() { layer.expanded = !layer.expanded; }
                                         } else {
-                                            ui.add_space(arrow_width + 4.0); // +4.0 pour compenser l'espacement naturel d'egui
+                                            // Ajoute un bloc vide EXACTEMENT de la même taille pour aligner les yeux !
+                                            ui.add_sized([arrow_width, row_height], egui::Label::new("").selectable(false));
                                         }
 
-                                        // 4. Œil de Visibilité (Alignement fixe)
                                         let is_visible = layer.visible; 
                                         if ui.add_sized([20.0, row_height], egui::SelectableLabel::new(is_visible, "👁")).on_hover_text("Visibilité").clicked() {
                                             layer.visible = !is_visible; needs_gpu_refresh = true; 
                                         }
                                         
-                                        // 5. Cadenas de Verrouillage (Alignement fixe)
                                         let is_locked = layer.locked;
                                         let lock_icon = if is_locked { "🔒" } else { "🔓" };
                                         if ui.add_sized([20.0, row_height], egui::SelectableLabel::new(is_locked, lock_icon)).on_hover_text("Verrouiller/Déverrouiller").clicked() {
                                             layer.locked = !is_locked;
                                         }
 
-                                        // 6. Icône Calque/Dossier
                                         let icon = if layer.is_folder { "📁" } else { "📄" };
                                         let mut is_renaming = false;
 
-                                        // 7. Nom du calque ou Champ de renommage
                                         if let Some((ren_idx, ref mut new_name)) = self.renaming_layer {
                                             if ren_idx == i {
                                                 is_renaming = true;
@@ -429,13 +459,15 @@ impl eframe::App for LimixApp {
 
                                         if !is_renaming {
                                             let mut text_color = if is_active { egui::Color32::WHITE } else { egui::Color32::LIGHT_GRAY };
-                                            if !layer.visible { text_color = egui::Color32::from_gray(100); }
+                                            // Si le calque est masqué ou si son dossier parent est masqué, le texte devient gris !
+                                            if !layer.visible || is_inherited_hidden { text_color = egui::Color32::from_gray(100); }
+                                            
                                             let name_label = egui::RichText::new(format!("{} {}", icon, layer.name)).color(text_color);
                                             
-                                            // Le texte prend tout le reste de la largeur cliquable
+                                            // Label propre, non sélectionnable (évite le curseur de texte de type "I")
                                             ui.add_sized(
                                                 [ui.available_width() - 8.0, row_height], 
-                                                egui::Label::new(name_label)
+                                                egui::Label::new(name_label).selectable(false)
                                             );
                                         }
                                     });
@@ -454,9 +486,11 @@ impl eframe::App for LimixApp {
                                     if ui.button("🗑 Supprimer").clicked() { context_action = Some(("delete".to_string(), i, layer.depth)); ui.close_menu(); }
                                 });
 
+                                // DRAG AND DROP AVEC AFFICHAGE DYNAMIQUE
                                 if let Some(drag_idx) = self.dragging_layer {
                                     if response.hovered() && drag_idx != i {
                                         let pointer_y = ui.input(|inp| inp.pointer.hover_pos().unwrap().y);
+                                        
                                         if layer.is_folder && pointer_y > rect.top() + 6.0 && pointer_y < rect.bottom() - 6.0 {
                                             ui.painter().rect_stroke(rect, 2.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 136, 0)));
                                             if ui.input(|inp| inp.pointer.any_released()) { move_action = Some((drag_idx, i, "inside")); }
@@ -480,17 +514,41 @@ impl eframe::App for LimixApp {
                     ui.columns(5, |cols| {
                         cols[0].vertical_centered_justified(|ui| {
                             if ui.button("➕").on_hover_text("Nouveau calque").clicked() {
-                                let depth = if self.engine.layers.is_empty() { 0 } else { self.engine.layers[self.active_layer].depth };
-                                self.engine.add_layer(&format!("Calque {}", self.engine.layers.len() + 1), depth);
-                                self.active_layer = self.engine.layers.len() - 1;
+                                let mut insert_idx = self.engine.layers.len();
+                                let mut depth = 0;
+                                if !self.engine.layers.is_empty() {
+                                    let active = &self.engine.layers[self.active_layer];
+                                    depth = active.depth;
+                                    // Si dossier ouvert, on place DEDANS (juste en dessous visuellement)
+                                    if active.is_folder && active.expanded {
+                                        depth += 1;
+                                        insert_idx = self.active_layer;
+                                    } else {
+                                        // Sinon on place AU-DESSUS visuellement
+                                        insert_idx = self.active_layer + 1; 
+                                    }
+                                }
+                                self.engine.insert_layer(insert_idx, &format!("Calque {}", self.engine.layers.len() + 1), depth);
+                                self.active_layer = insert_idx;
                                 needs_gpu_refresh = true;
                             }
                         });
                         cols[1].vertical_centered_justified(|ui| {
                             if ui.button("📁").on_hover_text("Nouveau groupe").clicked() {
-                                let depth = if self.engine.layers.is_empty() { 0 } else { self.engine.layers[self.active_layer].depth };
-                                self.engine.add_folder(&format!("Groupe {}", self.engine.layers.len() + 1), depth);
-                                self.active_layer = self.engine.layers.len() - 1;
+                                let mut insert_idx = self.engine.layers.len();
+                                let mut depth = 0;
+                                if !self.engine.layers.is_empty() {
+                                    let active = &self.engine.layers[self.active_layer];
+                                    depth = active.depth;
+                                    if active.is_folder && active.expanded {
+                                        depth += 1;
+                                        insert_idx = self.active_layer;
+                                    } else {
+                                        insert_idx = self.active_layer + 1; 
+                                    }
+                                }
+                                self.engine.insert_folder(insert_idx, &format!("Groupe {}", self.engine.layers.len() + 1), depth);
+                                self.active_layer = insert_idx;
                                 needs_gpu_refresh = true;
                             }
                         });
@@ -519,11 +577,10 @@ impl eframe::App for LimixApp {
                         });
                     });
 
-                    // EXECUTION DU MENU CONTEXTUEL ET DU GLISSER DEPOSER
                     if let Some((action, i, depth)) = context_action {
                         match action.as_str() {
                             "rename" => { self.renaming_layer = Some((i, self.engine.layers[i].name.clone())); }
-                            "new_folder" => { self.engine.add_folder("Nouveau Groupe", depth); needs_gpu_refresh = true; }
+                            "new_folder" => { self.engine.insert_folder(i + 1, "Nouveau Groupe", depth); needs_gpu_refresh = true; }
                             "duplicate" => {
                                 let mut new_layer = self.engine.layers[i].clone();
                                 new_layer.name = format!("{} (Copie)", new_layer.name);
@@ -547,7 +604,7 @@ impl eframe::App for LimixApp {
                         
                         if position == "inside" {
                             item.depth = self.engine.layers[target].depth + 1;
-                            self.engine.layers.insert(target + 1, item);
+                            self.engine.layers.insert(target, item); 
                         } else if position == "above" {
                             item.depth = self.engine.layers[target].depth;
                             self.engine.layers.insert(target + 1, item); 
@@ -559,9 +616,6 @@ impl eframe::App for LimixApp {
                     }
                 });
 
-                // ==============================================================================
-                // LE CANEVAS DE DESSIN CENTRAL
-                // ==============================================================================
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(10.0);
@@ -604,7 +658,25 @@ impl eframe::App for LimixApp {
                                     }
                                 }
 
-                                let can_draw = !self.engine.layers.is_empty() && self.engine.layers[self.active_layer].visible && !self.engine.layers[self.active_layer].locked && !self.engine.layers[self.active_layer].is_folder;
+                                // SECURITÉ : On vérifie si un calque PARENT est caché
+                                let active_depth = self.engine.layers[self.active_layer].depth;
+                                let mut parent_is_hidden = false;
+                                let mut current_depth = active_depth;
+                                
+                                for i in self.active_layer + 1 .. self.engine.layers.len() {
+                                    let l = &self.engine.layers[i];
+                                    if l.is_folder && l.depth < current_depth {
+                                        if !l.visible { parent_is_hidden = true; break; }
+                                        current_depth = l.depth;
+                                        if current_depth == 0 { break; }
+                                    }
+                                }
+
+                                let can_draw = !self.engine.layers.is_empty() 
+                                    && self.engine.layers[self.active_layer].visible 
+                                    && !parent_is_hidden 
+                                    && !self.engine.layers[self.active_layer].locked 
+                                    && !self.engine.layers[self.active_layer].is_folder;
 
                                 if response.dragged() || response.clicked() {
                                     if can_draw {

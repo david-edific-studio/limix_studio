@@ -65,28 +65,64 @@ impl Canvas {
         Self { width, height, layers: Vec::new() }
     }
 
+    // Utilisé par l'écran d'accueil (welcome.rs)
     pub fn add_layer(&mut self, name: &str, depth: usize) {
         let layer = Layer::new(name, self.width, self.height, depth);
         self.layers.push(layer);
     }
 
-    pub fn add_folder(&mut self, name: &str, depth: usize) {
+    // Nouvelle fonction intelligente : Insère un calque à l'index exact !
+    pub fn insert_layer(&mut self, index: usize, name: &str, depth: usize) {
+        let layer = Layer::new(name, self.width, self.height, depth);
+        self.layers.insert(index, layer);
+    }
+
+    pub fn insert_folder(&mut self, index: usize, name: &str, depth: usize) {
         let folder = Layer::new_folder(name, depth);
-        self.layers.push(folder);
+        self.layers.insert(index, folder);
     }
 
     pub fn render_flattened(&self) -> Vec<Rgba> {
         let total_pixels = self.width * self.height;
         let mut output = vec![Rgba { r: 255, g: 255, b: 255, a: 255 }; total_pixels];
 
-        for layer in &self.layers {
-            if !layer.visible || layer.is_folder {
+        // 1. Pré-calcul de la visibilité des calques enfants (Gestion de l'œil du dossier)
+        let mut actual_visible = vec![true; self.layers.len()];
+        let mut current_hidden_depth = None;
+
+        // On parcourt de haut en bas visuellement
+        for i in (0..self.layers.len()).rev() {
+            let layer = &self.layers[i];
+            
+            if let Some(hd) = current_hidden_depth {
+                if layer.depth > hd {
+                    actual_visible[i] = false; // L'enfant est caché car le parent est caché
+                    continue;
+                } else {
+                    current_hidden_depth = None; // Fin du dossier caché
+                }
+            }
+
+            if !layer.visible {
+                actual_visible[i] = false;
+                if layer.is_folder {
+                    current_hidden_depth = Some(layer.depth); // On enregistre la fermeture du dossier
+                }
+            }
+        }
+
+        // 2. Moteur de rendu (de bas en haut en mémoire)
+        for i in 0..self.layers.len() {
+            let layer = &self.layers[i];
+            
+            // Si le calque est caché (ou si c'est un dossier vide de pixels), on saute !
+            if !actual_visible[i] || layer.is_folder {
                 continue; 
             }
 
-            for i in 0..total_pixels {
-                let top = &layer.pixels[i];
-                let bottom = &mut output[i];
+            for j in 0..total_pixels {
+                let top = &layer.pixels[j];
+                let bottom = &mut output[j];
 
                 if top.a == 0 { continue; }
 
@@ -100,7 +136,7 @@ impl Canvas {
                 let bg = bottom.g as f32 / 255.0;
                 let bb = bottom.b as f32 / 255.0;
 
-                let (blend_r, blend_g, blend_b); // CORRECTION : Plus de 'mut' inutiles
+                let (blend_r, blend_g, blend_b);
 
                 match layer.blend_mode {
                     1 => { blend_r = tr * br; blend_g = tg * bg; blend_b = tb * bb; },
