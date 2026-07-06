@@ -109,8 +109,8 @@ pub fn show(app: &mut LimixApp, ctx: &egui::Context) {
                     if btn_start.clicked() {
                         // 1. On génère la NOUVELLE zone de dessin avec les vraies valeurs !
                         app.engine = Canvas::new(app.new_proj_params.width, app.new_proj_params.height);
-                        app.engine.add_layer("Arrière-plan");
-                        app.engine.add_layer("Tracé Principal");
+                        app.engine.add_layer("Arrière-plan", 0);
+                        app.engine.add_layer("Tracé Principal", 0);
                         
                         // 2. On convertit la couleur d'arrière-plan choisie
                         let r = (app.new_proj_params.bg_color[0] * 255.0) as u8;

@@ -1,4 +1,4 @@
-use crate::core::canvas::{Canvas, Rgba};
+use crate::core::canvas::Canvas;
 
 pub fn apply(
     canvas: &mut Canvas,

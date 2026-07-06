@@ -1,4 +1,3 @@
-// Structure d'un pixel standard (Rouge, Vert, Bleu, Opacité)
 #[derive(Clone, Copy, Debug)]
 pub struct Rgba {
     pub r: u8,
@@ -7,29 +6,54 @@ pub struct Rgba {
     pub a: u8,
 }
 
-// L'entité "Calque" qui contiendra la grille de pixels
+#[derive(Clone)]
 pub struct Layer {
     pub name: String,
     pub visible: bool,
+    pub locked: bool,
     pub opacity: f32,
+    pub blend_mode: usize,
+    
+    // --- NOUVEAUTÉS POUR L'ARBORESCENCE (DOSSIERS) ---
+    pub is_folder: bool,
+    pub expanded: bool,
+    pub depth: usize, 
+    // -------------------------------------------------
+    
     pub pixels: Vec<Rgba>,
 }
 
 impl Layer {
-    // Initialisation systémique d'un nouveau calque vide
-    pub fn new(name: &str, width: usize, height: usize) -> Self {
+    pub fn new(name: &str, width: usize, height: usize, depth: usize) -> Self {
         let total_pixels = width * height;
         Self {
             name: name.to_string(),
             visible: true,
+            locked: false,
             opacity: 1.0,
-            // Remplissage avec des pixels totalement transparents par défaut
+            blend_mode: 0,
+            is_folder: false,
+            expanded: false,
+            depth,
             pixels: vec![Rgba { r: 0, g: 0, b: 0, a: 0 }; total_pixels],
+        }
+    }
+
+    pub fn new_folder(name: &str, depth: usize) -> Self {
+        Self {
+            name: name.to_string(),
+            visible: true,
+            locked: false,
+            opacity: 1.0,
+            blend_mode: 0,
+            is_folder: true,
+            expanded: true,
+            depth,
+            pixels: Vec::new(), 
         }
     }
 }
 
-// Le chef d'orchestre : l'espace de travail global
 pub struct Canvas {
     pub width: usize,
     pub height: usize,
@@ -38,50 +62,62 @@ pub struct Canvas {
 
 impl Canvas {
     pub fn new(width: usize, height: usize) -> Self {
-        Self {
-            width,
-            height,
-            layers: Vec::new(),
-        }
+        Self { width, height, layers: Vec::new() }
     }
 
-    // Ajoute un calque au-dessus de la pile
-    pub fn add_layer(&mut self, name: &str) {
-        let layer = Layer::new(name, self.width, self.height);
+    pub fn add_layer(&mut self, name: &str, depth: usize) {
+        let layer = Layer::new(name, self.width, self.height, depth);
         self.layers.push(layer);
-        println!("[Moteur] Calque '{}' généré en mémoire.", name);
     }
 
-    // Moteur de rendu : fusionne tous les calques de bas en haut
+    pub fn add_folder(&mut self, name: &str, depth: usize) {
+        let folder = Layer::new_folder(name, depth);
+        self.layers.push(folder);
+    }
+
     pub fn render_flattened(&self) -> Vec<Rgba> {
         let total_pixels = self.width * self.height;
-        
-        // On initialise une "toile de fond" blanche et opaque
         let mut output = vec![Rgba { r: 255, g: 255, b: 255, a: 255 }; total_pixels];
 
         for layer in &self.layers {
-            if !layer.visible {
-                continue; // On ignore les calques masqués pour économiser le CPU
+            if !layer.visible || layer.is_folder {
+                continue; 
             }
-		
-	    // Ajoute cette ligne pour utiliser la variable 'name' et informer l'utilisateur :
-            println!("  -> Calcul des pixels pour le calque : {}", layer.name);
 
             for i in 0..total_pixels {
                 let top = &layer.pixels[i];
                 let bottom = &mut output[i];
 
-                // Calcul de l'opacité réelle
+                if top.a == 0 { continue; }
+
                 let alpha = (top.a as f32 / 255.0) * layer.opacity;
                 let inv_alpha = 1.0 - alpha;
 
-                // Application stricte de l'Alpha Blending (Interpolation linéaire)
-                bottom.r = ((top.r as f32 * alpha) + (bottom.r as f32 * inv_alpha)) as u8;
-                bottom.g = ((top.g as f32 * alpha) + (bottom.g as f32 * inv_alpha)) as u8;
-                bottom.b = ((top.b as f32 * alpha) + (bottom.b as f32 * inv_alpha)) as u8;
+                let tr = top.r as f32 / 255.0;
+                let tg = top.g as f32 / 255.0;
+                let tb = top.b as f32 / 255.0;
+                let br = bottom.r as f32 / 255.0;
+                let bg = bottom.g as f32 / 255.0;
+                let bb = bottom.b as f32 / 255.0;
+
+                let (blend_r, blend_g, blend_b); // CORRECTION : Plus de 'mut' inutiles
+
+                match layer.blend_mode {
+                    1 => { blend_r = tr * br; blend_g = tg * bg; blend_b = tb * bb; },
+                    2 => { blend_r = 1.0 - (1.0 - tr) * (1.0 - br); blend_g = 1.0 - (1.0 - tg) * (1.0 - bg); blend_b = 1.0 - (1.0 - tb) * (1.0 - bb); },
+                    3 => {
+                        blend_r = if br < 0.5 { 2.0 * tr * br } else { 1.0 - 2.0 * (1.0 - tr) * (1.0 - br) };
+                        blend_g = if bg < 0.5 { 2.0 * tg * bg } else { 1.0 - 2.0 * (1.0 - tg) * (1.0 - bg) };
+                        blend_b = if bb < 0.5 { 2.0 * tb * bb } else { 1.0 - 2.0 * (1.0 - tb) * (1.0 - bb) };
+                    },
+                    _ => { blend_r = tr; blend_g = tg; blend_b = tb; }
+                }
+
+                bottom.r = ((blend_r * 255.0 * alpha) + (bottom.r as f32 * inv_alpha)) as u8;
+                bottom.g = ((blend_g * 255.0 * alpha) + (bottom.g as f32 * inv_alpha)) as u8;
+                bottom.b = ((blend_b * 255.0 * alpha) + (bottom.b as f32 * inv_alpha)) as u8;
             }
         }
-        
         output
     }
 }
