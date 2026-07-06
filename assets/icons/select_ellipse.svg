@@ -8,7 +8,7 @@
       }
 
       .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7, .st8, .st9, .st10, .st11, .st12, .st13 {
-        stroke: #FFFFFF;
+        stroke: #000;
         stroke-miterlimit: 10;
       }
 
@@ -87,10 +87,10 @@
       <line class="st13" x1="21.07" y1="10.18" x2="21.07" y2="15.14"/>
     </g>
   </g>
-  <g id="select_x5F_ellipse" class="st14">
+  <g id="select_x5F_elliptic">
     <circle class="st2" cx="11.6" cy="11.84" r="10.51"/>
   </g>
-  <g id="lasso_x5F_free">
+  <g id="lasso_x5F_free" class="st14">
     <path class="st1" d="M5.38,22.74s1.67-.88,1.49-4.04S1.07,14.13,1.78,8.24,10.66.85,14.61.85s9.85,3.34,8,8c-1.85,4.66-5.89,6.77-13.19,7.47"/>
     <path class="st1" d="M5.65,19.05s-4.66.79-5.1-2.81,2.81-3.6,5.1-3.34,6.33,4.48,0,6.15Z"/>
   </g>
