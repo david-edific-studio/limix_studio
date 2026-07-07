@@ -1,7 +1,10 @@
-// --- IL FAUT DÉCLARER LES FICHIERS PHYSIQUES ICI ---
+// --- DÉCLARATION DES FICHIERS PHYSIQUES ---
 pub mod brush;
 pub mod eraser;
-// (Tu ajouteras pub mod fill; pub mod crop; etc. au fur et à mesure que tu créeras leurs fichiers)
+pub mod selection;
+pub mod transform;
+pub mod vector;
+// (Tu ajouteras pub mod fill; pub mod crop; etc. au fur et à mesure)
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Tool {

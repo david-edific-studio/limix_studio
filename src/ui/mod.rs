@@ -3,6 +3,7 @@ pub mod welcome;
 use eframe::egui;
 use crate::core::canvas::{Canvas, Rgba};
 use crate::tools::Tool;
+// L'import `crate::tools::transform` a été retiré pour éviter le warning car on l'appelle directement via crate::tools::transform::apply_transform_absolute
 
 #[derive(PartialEq)]
 pub enum AppState {
@@ -41,6 +42,9 @@ pub struct LimixApp {
     pub renaming_layer: Option<(usize, String)>, 
     pub dragging_layer: Option<usize>,           
 
+    pub transform_state: Option<(usize, Vec<Rgba>, Vec<(isize, isize, Rgba)>, egui::Rect, egui::Rect, Option<usize>)>,
+    pub transform_active: bool, 
+
     pub zoom: f32,
     pub state: AppState,       
     pub show_settings: bool,   
@@ -74,6 +78,9 @@ impl LimixApp {
             
             renaming_layer: None,
             dragging_layer: None,
+            
+            transform_state: None,
+            transform_active: true,
 
             zoom: 1.0,
             state: AppState::WelcomeScreen,
@@ -168,8 +175,15 @@ impl eframe::App for LimixApp {
                             if ui.button("Masque de calque...").clicked() {}
                         });
                         ui.menu_button("Sélection", |ui| {
-                            if ui.button("Tout sélectionner").clicked() {}
-                            if ui.button("Désélectionner").clicked() {}
+                            if ui.button("Tout sélectionner").clicked() {
+                                self.transform_active = true;
+                                ui.close_menu();
+                            }
+                            if ui.button("Désélectionner").clicked() {
+                                self.transform_active = false;
+                                self.transform_state = None;
+                                ui.close_menu();
+                            }
                             if ui.button("Inverser la sélection").clicked() {}
                             ui.separator();
                             ui.menu_button("Modifier", |ui| {
@@ -283,7 +297,6 @@ impl eframe::App for LimixApp {
                 // ==============================================================================
                 egui::SidePanel::right("layers_panel").resizable(true).min_width(280.0).show(ctx, |ui| {
                     
-                    // --- 1. SECTION COULEURS ---
                     ui.add_space(10.0); ui.heading("Couleurs"); ui.separator();
                     ui.horizontal(|ui| { ui.label("Active :"); ui.color_edit_button_rgb(&mut self.primary_color); });
                     ui.add_space(5.0); ui.label("Nuancier Rapide :"); ui.add_space(5.0);
@@ -298,13 +311,11 @@ impl eframe::App for LimixApp {
                         }
                     });
 
-                    // --- BARRE DE SÉPARATION ---
                     ui.add_space(15.0);
                     let rect = ui.allocate_space(egui::vec2(ui.available_width(), 3.0)).1;
                     ui.painter().rect_filled(rect, 1.5, egui::Color32::from_rgb(255, 136, 0));
                     ui.add_space(10.0);
 
-                    // --- 2. SECTION CALQUES (Entête) ---
                     ui.heading("Calques"); ui.separator();
                     if self.active_layer < self.engine.layers.len() {
                         let active_layer_idx = self.active_layer;
@@ -335,7 +346,6 @@ impl eframe::App for LimixApp {
                     
                     let mut move_action = None;
 
-                    // --- 3. LISTE DES CALQUES ---
                     let bottom_bar_height = 40.0; 
                     let available_height = ui.available_height();
 
@@ -344,29 +354,20 @@ impl eframe::App for LimixApp {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             
-                            // CALCUL INTELLIGENT DE L'ARBORESCENCE (Héritage Visibilité + Repli)
                             let mut visible_indices = Vec::new();
                             let mut current_collapsed_depth = None;
                             let mut current_hidden_depth = None;
                             
-                            // On parcourt de haut en bas visuellement (len - 1 down to 0)
                             for i in (0..self.engine.layers.len()).rev() {
                                 let layer = &self.engine.layers[i];
                                 
-                                // Gérer les dossiers repliés
                                 if let Some(cd) = current_collapsed_depth {
                                     if layer.depth > cd { continue; } 
                                     else { current_collapsed_depth = None; }
                                 }
 
-                                // Gérer les dossiers invisibles (l'œil fermé) pour griser les enfants visuellement
                                 if let Some(hd) = current_hidden_depth {
-                                    if layer.depth > hd { 
-                                        // On est dans un dossier caché. On ne l'ajoute pas à la liste visuelle !
-                                        // Wait, le calque enfant DOIT s'afficher dans l'UI (en grisé), sauf s'il est replié
-                                    } else { 
-                                        current_hidden_depth = None; 
-                                    }
+                                    if layer.depth <= hd { current_hidden_depth = None; }
                                 }
 
                                 visible_indices.push((i, current_hidden_depth.is_some()));
@@ -381,10 +382,11 @@ impl eframe::App for LimixApp {
                                 }
                             }
 
-                            // AFFICHAGE DU HAUT VERS LE BAS
                             for &(i, is_inherited_hidden) in &visible_indices {
                                 let layer = &mut self.engine.layers[i];
-                                let is_active = self.active_layer == i;
+                                
+                                let is_active = self.active_layer == i && !layer.locked && (self.current_tool != Tool::Move || self.transform_active);
+                                
                                 let row_height = 26.0;
 
                                 let (rect, response) = ui.allocate_exact_size(
@@ -392,12 +394,8 @@ impl eframe::App for LimixApp {
                                     egui::Sense::click_and_drag()
                                 );
 
-                                // PLUS DE CURSEUR D'ÉCRITURE ! Forçage du curseur de flèche sur la ligne.
-                                if response.hovered() {
-                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
-                                }
-
-                                if response.drag_started() { self.dragging_layer = Some(i); }
+                                if response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Default); }
+                                if response.drag_started() && !layer.locked { self.dragging_layer = Some(i); }
 
                                 let bg_color = if is_active { egui::Color32::from_rgb(60, 60, 60) } 
                                                else if response.hovered() { egui::Color32::from_rgb(45, 45, 45) } 
@@ -405,18 +403,12 @@ impl eframe::App for LimixApp {
                                 
                                 ui.painter().rect_filled(rect, 4.0, bg_color);
 
-                                // =========================================================
-                                // DESIGN PRO: ALIGNEMENT & INDENTATION PARFAITE DES CALQUES
-                                // =========================================================
                                 ui.allocate_ui_at_rect(rect, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.add_space(8.0);
-                                        
-                                        // Indentation basée sur la profondeur
                                         let indentation = layer.depth as f32 * 20.0;
                                         ui.add_space(indentation);
 
-                                        // Flèches v et > (Protégées contre le curseur d'édition texte + Safe Linux)
                                         let arrow_width = 16.0;
                                         if layer.is_folder {
                                             let arrow = if layer.expanded { "v" } else { ">" };
@@ -427,7 +419,6 @@ impl eframe::App for LimixApp {
                                             if arrow_resp.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
                                             if arrow_resp.clicked() { layer.expanded = !layer.expanded; }
                                         } else {
-                                            // Ajoute un bloc vide EXACTEMENT de la même taille pour aligner les yeux !
                                             ui.add_sized([arrow_width, row_height], egui::Label::new("").selectable(false));
                                         }
 
@@ -438,8 +429,13 @@ impl eframe::App for LimixApp {
                                         
                                         let is_locked = layer.locked;
                                         let lock_icon = if is_locked { "🔒" } else { "🔓" };
+                                        
                                         if ui.add_sized([20.0, row_height], egui::SelectableLabel::new(is_locked, lock_icon)).on_hover_text("Verrouiller/Déverrouiller").clicked() {
                                             layer.locked = !is_locked;
+                                            if layer.locked && self.active_layer == i {
+                                                self.transform_active = false;
+                                                self.transform_state = None;
+                                            }
                                         }
 
                                         let icon = if layer.is_folder { "📁" } else { "📄" };
@@ -459,23 +455,19 @@ impl eframe::App for LimixApp {
 
                                         if !is_renaming {
                                             let mut text_color = if is_active { egui::Color32::WHITE } else { egui::Color32::LIGHT_GRAY };
-                                            // Si le calque est masqué ou si son dossier parent est masqué, le texte devient gris !
                                             if !layer.visible || is_inherited_hidden { text_color = egui::Color32::from_gray(100); }
-                                            
                                             let name_label = egui::RichText::new(format!("{} {}", icon, layer.name)).color(text_color);
-                                            
-                                            // Label propre, non sélectionnable (évite le curseur de texte de type "I")
-                                            ui.add_sized(
-                                                [ui.available_width() - 8.0, row_height], 
-                                                egui::Label::new(name_label).selectable(false)
-                                            );
+                                            ui.add_sized([ui.available_width() - 8.0, row_height], egui::Label::new(name_label).selectable(false));
                                         }
                                     });
                                 });
-                                // =========================================================
 
-                                if response.clicked() { self.active_layer = i; }
-                                if response.double_clicked() { self.renaming_layer = Some((i, layer.name.clone())); }
+                                if response.clicked() && !layer.locked { 
+                                    self.active_layer = i; 
+                                    self.transform_active = true; 
+                                    self.transform_state = None; 
+                                }
+                                if response.double_clicked() && !layer.locked { self.renaming_layer = Some((i, layer.name.clone())); }
 
                                 response.context_menu(|ui| {
                                     if ui.button("✏ Renommer").clicked() { context_action = Some(("rename".to_string(), i, layer.depth)); ui.close_menu(); }
@@ -486,11 +478,9 @@ impl eframe::App for LimixApp {
                                     if ui.button("🗑 Supprimer").clicked() { context_action = Some(("delete".to_string(), i, layer.depth)); ui.close_menu(); }
                                 });
 
-                                // DRAG AND DROP AVEC AFFICHAGE DYNAMIQUE
                                 if let Some(drag_idx) = self.dragging_layer {
                                     if response.hovered() && drag_idx != i {
                                         let pointer_y = ui.input(|inp| inp.pointer.hover_pos().unwrap().y);
-                                        
                                         if layer.is_folder && pointer_y > rect.top() + 6.0 && pointer_y < rect.bottom() - 6.0 {
                                             ui.painter().rect_stroke(rect, 2.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 136, 0)));
                                             if ui.input(|inp| inp.pointer.any_released()) { move_action = Some((drag_idx, i, "inside")); }
@@ -505,10 +495,15 @@ impl eframe::App for LimixApp {
                                 }
                             }
                             
+                            let remaining_space = ui.available_rect_before_wrap();
+                            if ui.interact(remaining_space, ui.id().with("empty_space"), egui::Sense::click()).clicked() {
+                                self.transform_active = false;
+                                self.transform_state = None;
+                            }
+
                             if ui.input(|inp| inp.pointer.any_released()) { self.dragging_layer = None; }
                         });
 
-                    // --- 4. BARRE D'ACTIONS RAPIDES (En bas) ---
                     ui.add_space(5.0);
                     ui.separator();
                     ui.columns(5, |cols| {
@@ -519,12 +514,10 @@ impl eframe::App for LimixApp {
                                 if !self.engine.layers.is_empty() {
                                     let active = &self.engine.layers[self.active_layer];
                                     depth = active.depth;
-                                    // Si dossier ouvert, on place DEDANS (juste en dessous visuellement)
                                     if active.is_folder && active.expanded {
                                         depth += 1;
                                         insert_idx = self.active_layer;
                                     } else {
-                                        // Sinon on place AU-DESSUS visuellement
                                         insert_idx = self.active_layer + 1; 
                                     }
                                 }
@@ -616,6 +609,9 @@ impl eframe::App for LimixApp {
                     }
                 });
 
+                // ==============================================================================
+                // LE CANEVAS DE DESSIN CENTRAL ET TRANSFORMATION
+                // ==============================================================================
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(10.0);
@@ -647,60 +643,270 @@ impl eframe::App for LimixApp {
                                 let image_top_left_y = response.rect.center().y - (current_height / 2.0);
                                 let image_rect = egui::Rect::from_min_size(egui::pos2(image_top_left_x, image_top_left_y), egui::vec2(current_width, current_height));
 
-                                if let Some(pos) = ui.input(|i| i.pointer.latest_pos()) {
-                                    if image_rect.contains(pos) || response.dragged() {
-                                        if matches!(self.current_tool, Tool::Brush | Tool::Eraser) {
-                                            let screen_radius = (self.brush_size / 2.0) * self.zoom;
-                                            ui.painter().circle_stroke(pos, screen_radius, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200)));
-                                            ui.painter().circle_stroke(pos, screen_radius + 1.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 150)));
-                                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                                let mut modified = false;
+
+                                // === MOTEUR DE DÉPLACEMENT & SÉLECTION DIRECTE ===
+                                if self.current_tool == Tool::Move {
+                                    
+                                    let mut clicked_inside_current_bbox = false;
+                                    let mut s_rect_expanded = egui::Rect::NOTHING;
+
+                                    // ICI ON UTILISE "_" POUR IGNORER LE VEC D'OVERFLOW (6ème élément)
+                                    if let Some((_, _, _, ref orig_bbox, ref mut current_bbox, ref mut dragging_handle)) = self.transform_state {
+                                        let s_min = egui::pos2(image_top_left_x + current_bbox.min.x * self.zoom, image_top_left_y + current_bbox.min.y * self.zoom);
+                                        let s_max = egui::pos2(image_top_left_x + current_bbox.max.x * self.zoom, image_top_left_y + current_bbox.max.y * self.zoom);
+                                        s_rect_expanded = egui::Rect::from_min_max(s_min, s_max).expand(12.0); 
+                                    }
+
+                                    // --- 1. SÉLECTION DIRECTE ET DÉSÉLECTION GLOBALE ---
+                                    if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                                        if s_rect_expanded.contains(pos) && self.transform_active {
+                                            clicked_inside_current_bbox = true;
                                         }
-                                    }
-                                }
 
-                                // SECURITÉ : On vérifie si un calque PARENT est caché
-                                let active_depth = self.engine.layers[self.active_layer].depth;
-                                let mut parent_is_hidden = false;
-                                let mut current_depth = active_depth;
-                                
-                                for i in self.active_layer + 1 .. self.engine.layers.len() {
-                                    let l = &self.engine.layers[i];
-                                    if l.is_folder && l.depth < current_depth {
-                                        if !l.visible { parent_is_hidden = true; break; }
-                                        current_depth = l.depth;
-                                        if current_depth == 0 { break; }
-                                    }
-                                }
-
-                                let can_draw = !self.engine.layers.is_empty() 
-                                    && self.engine.layers[self.active_layer].visible 
-                                    && !parent_is_hidden 
-                                    && !self.engine.layers[self.active_layer].locked 
-                                    && !self.engine.layers[self.active_layer].is_folder;
-
-                                if response.dragged() || response.clicked() {
-                                    if can_draw {
-                                        if let Some(p_pos) = response.interact_pointer_pos() {
-                                            let local_x = (p_pos.x - image_top_left_x) / self.zoom;
-                                            let local_y = (p_pos.y - image_top_left_y) / self.zoom;
-                                            let (last_x, last_y) = self.last_draw_pos.unwrap_or((local_x, local_y));
-                                            let mut modified = false;
+                                        if (response.drag_started() || response.clicked()) && !clicked_inside_current_bbox {
+                                            let mut found_layer = None;
+                                            let mut current_hidden_depth = None;
                                             
-                                            if self.current_tool == Tool::Brush {
-                                                if crate::tools::brush::apply(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_hardness, self.brush_opacity, self.brush_flow, self.primary_color) {
-                                                    modified = true;
-                                                }
-                                            } else if self.current_tool == Tool::Eraser {
-                                                if crate::tools::eraser::apply(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_hardness, self.brush_opacity, self.brush_flow) {
-                                                    modified = true;
+                                            if image_rect.contains(pos) {
+                                                let local_x = (pos.x - image_top_left_x) / self.zoom;
+                                                let local_y = (pos.y - image_top_left_y) / self.zoom;
+                                                let lx = local_x as usize;
+                                                let ly = local_y as usize;
+
+                                                if lx < self.engine.width && ly < self.engine.height {
+                                                    for i in (0..self.engine.layers.len()).rev() {
+                                                        let layer = &self.engine.layers[i];
+                                                        if let Some(hd) = current_hidden_depth {
+                                                            if layer.depth > hd { continue; } else { current_hidden_depth = None; }
+                                                        }
+                                                        if !layer.visible {
+                                                            if layer.is_folder { current_hidden_depth = Some(layer.depth); }
+                                                            continue;
+                                                        }
+                                                        if layer.is_folder || layer.locked { continue; } 
+                                                        
+                                                        if layer.pixels[ly * self.engine.width + lx].a > 0 {
+                                                            found_layer = Some(i);
+                                                            break;
+                                                        }
+                                                    }
                                                 }
                                             }
 
-                                            if modified { needs_gpu_refresh = true; }
-                                            self.last_draw_pos = Some((local_x, local_y));
+                                            if let Some(idx) = found_layer {
+                                                self.active_layer = idx;
+                                                self.transform_active = true;
+                                                
+                                                if let Some(bbox) = crate::tools::transform::get_bounding_box(&self.engine, idx) {
+                                                    self.transform_state = Some((
+                                                        idx,
+                                                        self.engine.layers[idx].pixels.clone(),
+                                                        self.engine.layers[idx].overflow.clone(),
+                                                        bbox,
+                                                        bbox,
+                                                        if response.drag_started() { Some(8) } else { None } 
+                                                    ));
+                                                } else {
+                                                    self.transform_state = None;
+                                                }
+                                                clicked_inside_current_bbox = true;
+                                            } 
+                                            else if response.clicked() || response.drag_started() {
+                                                self.transform_active = false;
+                                                self.transform_state = None;
+                                            }
                                         }
                                     }
-                                } else { self.last_draw_pos = None; }
+
+                                    // --- 2. LOGIQUE DE REDIMENSIONNEMENT / DÉPLACEMENT ---
+                                    if self.transform_active && !self.engine.layers.is_empty() && !self.engine.layers[self.active_layer].locked {
+                                        let active_idx = self.active_layer;
+                                        
+                                        let init_needed = match self.transform_state {
+                                            Some((idx, ..)) => idx != active_idx,
+                                            None => true,
+                                        };
+                                        if init_needed {
+                                            if let Some(bbox) = crate::tools::transform::get_bounding_box(&self.engine, active_idx) {
+                                                self.transform_state = Some((
+                                                    active_idx,
+                                                    self.engine.layers[active_idx].pixels.clone(),
+                                                    self.engine.layers[active_idx].overflow.clone(),
+                                                    bbox,
+                                                    bbox,
+                                                    None
+                                                ));
+                                            } else {
+                                                self.transform_state = None;
+                                            }
+                                        }
+
+                                        let mut transform_args = None;
+                                        
+                                        // ICI ON MET BIEN '_' POUR LE 3ème ELEMENT (OVERFLOW)
+                                        if let Some((_, _, _, ref orig_bbox, ref mut current_bbox, ref mut dragging_handle)) = self.transform_state {
+                                            
+                                            let s_min = egui::pos2(image_top_left_x + current_bbox.min.x * self.zoom, image_top_left_y + current_bbox.min.y * self.zoom);
+                                            let s_max = egui::pos2(image_top_left_x + current_bbox.max.x * self.zoom, image_top_left_y + current_bbox.max.y * self.zoom);
+                                            let s_rect = egui::Rect::from_min_max(s_min, s_max);
+
+                                            ui.painter().rect_stroke(s_rect, 0.0, egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 136, 0)));
+
+                                            let handles = [
+                                                (s_rect.left_top(), egui::CursorIcon::ResizeNwSe),
+                                                (s_rect.center_top(), egui::CursorIcon::ResizeVertical),
+                                                (s_rect.right_top(), egui::CursorIcon::ResizeNeSw),
+                                                (s_rect.right_center(), egui::CursorIcon::ResizeHorizontal),
+                                                (s_rect.right_bottom(), egui::CursorIcon::ResizeNwSe),
+                                                (s_rect.center_bottom(), egui::CursorIcon::ResizeVertical),
+                                                (s_rect.left_bottom(), egui::CursorIcon::ResizeNeSw),
+                                                (s_rect.left_center(), egui::CursorIcon::ResizeHorizontal),
+                                            ];
+
+                                            let mut hovered_handle = None;
+                                            if let Some(pos) = ui.input(|i| i.pointer.latest_pos()) {
+                                                for (i, &(h_pos, cursor)) in handles.iter().enumerate() {
+                                                    let h_rect = egui::Rect::from_center_size(h_pos, egui::vec2(10.0, 10.0));
+                                                    ui.painter().rect_filled(h_rect, 0.0, egui::Color32::BLACK);
+                                                    ui.painter().rect_stroke(h_rect, 0.0, egui::Stroke::new(1.0, egui::Color32::WHITE)); 
+                                                    
+                                                    if h_rect.contains(pos) {
+                                                        hovered_handle = Some(i);
+                                                        ui.ctx().set_cursor_icon(cursor);
+                                                    }
+                                                }
+                                                if hovered_handle.is_none() && s_rect.contains(pos) {
+                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
+                                                } else if hovered_handle.is_none() {
+                                                    for &(h_pos, _) in &handles {
+                                                        let h_rect = egui::Rect::from_center_size(h_pos, egui::vec2(10.0, 10.0));
+                                                        ui.painter().rect_filled(h_rect, 0.0, egui::Color32::BLACK);
+                                                        ui.painter().rect_stroke(h_rect, 0.0, egui::Stroke::new(1.0, egui::Color32::WHITE));
+                                                    }
+                                                }
+                                            } else {
+                                                for &(h_pos, _) in &handles {
+                                                    let h_rect = egui::Rect::from_center_size(h_pos, egui::vec2(10.0, 10.0));
+                                                    ui.painter().rect_filled(h_rect, 0.0, egui::Color32::BLACK);
+                                                    ui.painter().rect_stroke(h_rect, 0.0, egui::Stroke::new(1.0, egui::Color32::WHITE));
+                                                }
+                                            }
+
+                                            if response.drag_started() {
+                                                if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                                                    if let Some(idx) = hovered_handle {
+                                                        *dragging_handle = Some(idx);
+                                                    } else if s_rect.contains(pos) {
+                                                        *dragging_handle = Some(8);
+                                                    }
+                                                }
+                                            }
+
+                                            if response.dragged() {
+                                                if let Some(handle_idx) = *dragging_handle {
+                                                    let delta = ui.input(|i| i.pointer.delta());
+                                                    let c_delta = egui::vec2(delta.x / self.zoom, delta.y / self.zoom);
+                                                    
+                                                    match handle_idx {
+                                                        0 => { current_bbox.min += c_delta; },
+                                                        1 => { current_bbox.min.y += c_delta.y; },
+                                                        2 => { current_bbox.max.x += c_delta.x; current_bbox.min.y += c_delta.y; },
+                                                        3 => { current_bbox.max.x += c_delta.x; },
+                                                        4 => { current_bbox.max += c_delta; },
+                                                        5 => { current_bbox.max.y += c_delta.y; },
+                                                        6 => { current_bbox.min.x += c_delta.x; current_bbox.max.y += c_delta.y; },
+                                                        7 => { current_bbox.min.x += c_delta.x; },
+                                                        8 => { *current_bbox = current_bbox.translate(c_delta); },
+                                                        _ => {}
+                                                    }
+
+                                                    if current_bbox.max.x - current_bbox.min.x < 1.0 {
+                                                        if handle_idx == 0 || handle_idx == 6 || handle_idx == 7 { current_bbox.min.x = current_bbox.max.x - 1.0; }
+                                                        else { current_bbox.max.x = current_bbox.min.x + 1.0; }
+                                                    }
+                                                    if current_bbox.max.y - current_bbox.min.y < 1.0 {
+                                                        if handle_idx == 0 || handle_idx == 1 || handle_idx == 2 { current_bbox.min.y = current_bbox.max.y - 1.0; }
+                                                        else { current_bbox.max.y = current_bbox.min.y + 1.0; }
+                                                    }
+
+                                                    transform_args = Some((orig_bbox.clone(), current_bbox.clone()));
+                                                }
+                                            }
+                                        }
+
+                                        if let Some((obbox, cbbox)) = transform_args {
+                                            let original_backup = self.transform_state.as_ref().unwrap().1.clone();
+                                            let original_overflow = self.transform_state.as_ref().unwrap().2.clone(); 
+                                            if crate::tools::transform::apply_transform_absolute(&mut self.engine, self.active_layer, &original_backup, &original_overflow, obbox, cbbox) {
+                                                modified = true;
+                                            }
+                                        }
+
+                                        if ui.input(|i| i.pointer.any_released()) {
+                                            if let Some(ref mut state) = self.transform_state {
+                                                state.5 = None; 
+                                            }
+                                        }
+                                    }
+                                } 
+                                // === OUTILS CLASSIQUES (Pinceau, Gomme) ===
+                                else {
+                                    self.transform_state = None;
+
+                                    if let Some(pos) = ui.input(|i| i.pointer.latest_pos()) {
+                                        if image_rect.contains(pos) || response.dragged() {
+                                            if matches!(self.current_tool, Tool::Brush | Tool::Eraser) {
+                                                let screen_radius = (self.brush_size / 2.0) * self.zoom;
+                                                ui.painter().circle_stroke(pos, screen_radius, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200)));
+                                                ui.painter().circle_stroke(pos, screen_radius + 1.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 150)));
+                                                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                                            }
+                                        }
+                                    }
+
+                                    let active_depth = self.engine.layers[self.active_layer].depth;
+                                    let mut parent_is_hidden = false;
+                                    let mut current_depth = active_depth;
+                                    
+                                    for i in self.active_layer + 1 .. self.engine.layers.len() {
+                                        let l = &self.engine.layers[i];
+                                        if l.is_folder && l.depth < current_depth {
+                                            if !l.visible { parent_is_hidden = true; break; }
+                                            current_depth = l.depth;
+                                            if current_depth == 0 { break; }
+                                        }
+                                    }
+
+                                    let can_draw = !self.engine.layers.is_empty() 
+                                        && self.engine.layers[self.active_layer].visible 
+                                        && !parent_is_hidden 
+                                        && !self.engine.layers[self.active_layer].locked 
+                                        && !self.engine.layers[self.active_layer].is_folder;
+
+                                    if response.dragged() || response.clicked() {
+                                        if can_draw {
+                                            if let Some(p_pos) = response.interact_pointer_pos() {
+                                                let local_x = (p_pos.x - image_top_left_x) / self.zoom;
+                                                let local_y = (p_pos.y - image_top_left_y) / self.zoom;
+                                                let (last_x, last_y) = self.last_draw_pos.unwrap_or((local_x, local_y));
+                                                
+                                                if self.current_tool == Tool::Brush {
+                                                    if crate::tools::brush::apply(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_hardness, self.brush_opacity, self.brush_flow, self.primary_color) {
+                                                        modified = true;
+                                                    }
+                                                } else if self.current_tool == Tool::Eraser {
+                                                    if crate::tools::eraser::apply(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_hardness, self.brush_opacity, self.brush_flow) {
+                                                        modified = true;
+                                                    }
+                                                }
+                                                self.last_draw_pos = Some((local_x, local_y));
+                                            }
+                                        }
+                                    } else { self.last_draw_pos = None; }
+                                }
+
+                                if modified { needs_gpu_refresh = true; }
                             }
                         });
                     });

@@ -14,13 +14,13 @@ pub struct Layer {
     pub opacity: f32,
     pub blend_mode: usize,
     
-    // --- NOUVEAUTÉS POUR L'ARBORESCENCE (DOSSIERS) ---
     pub is_folder: bool,
     pub expanded: bool,
     pub depth: usize, 
-    // -------------------------------------------------
     
     pub pixels: Vec<Rgba>,
+    // --- NOUVEAUTÉ : Mémoire dimensionnelle pour les pixels hors de la feuille ! ---
+    pub overflow: Vec<(isize, isize, Rgba)>, 
 }
 
 impl Layer {
@@ -36,6 +36,7 @@ impl Layer {
             expanded: false,
             depth,
             pixels: vec![Rgba { r: 0, g: 0, b: 0, a: 0 }; total_pixels],
+            overflow: Vec::new(), // Initialisation du vide
         }
     }
 
@@ -50,6 +51,7 @@ impl Layer {
             expanded: true,
             depth,
             pixels: Vec::new(), 
+            overflow: Vec::new(),
         }
     }
 }
@@ -65,13 +67,11 @@ impl Canvas {
         Self { width, height, layers: Vec::new() }
     }
 
-    // Utilisé par l'écran d'accueil (welcome.rs)
     pub fn add_layer(&mut self, name: &str, depth: usize) {
         let layer = Layer::new(name, self.width, self.height, depth);
         self.layers.push(layer);
     }
 
-    // Nouvelle fonction intelligente : Insère un calque à l'index exact !
     pub fn insert_layer(&mut self, index: usize, name: &str, depth: usize) {
         let layer = Layer::new(name, self.width, self.height, depth);
         self.layers.insert(index, layer);
@@ -84,41 +84,44 @@ impl Canvas {
 
     pub fn render_flattened(&self) -> Vec<Rgba> {
         let total_pixels = self.width * self.height;
-        let mut output = vec![Rgba { r: 255, g: 255, b: 255, a: 255 }; total_pixels];
+        let mut output = Vec::with_capacity(total_pixels);
 
-        // 1. Pré-calcul de la visibilité des calques enfants (Gestion de l'œil du dossier)
+        let checker_size = 8; 
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let is_light = ((x / checker_size) + (y / checker_size)) % 2 == 0;
+                let c = if is_light { 255 } else { 204 }; 
+                output.push(Rgba { r: c, g: c, b: c, a: 255 }); 
+            }
+        }
+
         let mut actual_visible = vec![true; self.layers.len()];
         let mut current_hidden_depth = None;
 
-        // On parcourt de haut en bas visuellement
         for i in (0..self.layers.len()).rev() {
             let layer = &self.layers[i];
             
             if let Some(hd) = current_hidden_depth {
                 if layer.depth > hd {
-                    actual_visible[i] = false; // L'enfant est caché car le parent est caché
+                    actual_visible[i] = false; 
                     continue;
                 } else {
-                    current_hidden_depth = None; // Fin du dossier caché
+                    current_hidden_depth = None; 
                 }
             }
 
             if !layer.visible {
                 actual_visible[i] = false;
                 if layer.is_folder {
-                    current_hidden_depth = Some(layer.depth); // On enregistre la fermeture du dossier
+                    current_hidden_depth = Some(layer.depth); 
                 }
             }
         }
 
-        // 2. Moteur de rendu (de bas en haut en mémoire)
         for i in 0..self.layers.len() {
             let layer = &self.layers[i];
             
-            // Si le calque est caché (ou si c'est un dossier vide de pixels), on saute !
-            if !actual_visible[i] || layer.is_folder {
-                continue; 
-            }
+            if !actual_visible[i] || layer.is_folder { continue; }
 
             for j in 0..total_pixels {
                 let top = &layer.pixels[j];
