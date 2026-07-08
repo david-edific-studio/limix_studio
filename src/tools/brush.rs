@@ -70,6 +70,11 @@ pub fn apply(
                     if src_a <= 0.0 { continue; }
 
                     let idx = (py as usize) * canvas.width + (px as usize);
+
+                    if let Some(mask) = &canvas.selection_mask {
+                        if mask[idx] == 0 { continue; }
+                    }
+
                     let current_pixel = canvas.layers[layer_idx].pixels[idx];
                     
                     let dst_a = current_pixel.a as f32 / 255.0;

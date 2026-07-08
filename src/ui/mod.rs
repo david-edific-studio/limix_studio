@@ -37,7 +37,20 @@ pub struct LimixApp {
     pub brush_opacity: f32,
     pub brush_flow: f32,
     pub primary_color: [f32; 3],
+    pub secondary_color: [f32; 3], // couleur de fond pour le dégradé
     pub last_draw_pos: Option<(f32, f32)>, 
+
+    // Sélection
+    pub selection_drag_start: Option<(f32, f32)>, // pour rect/ellipse
+
+    // Dégradé
+    pub gradient_start: Option<(f32, f32)>,
+
+    // Clone Stamp
+    pub clone_source: Option<(f32, f32)>, // point source (Alt+Clic)
+
+    // Éponge
+    pub sponge_saturate: bool,
     
     pub renaming_layer: Option<(usize, String)>, 
     pub dragging_layer: Option<usize>,           
@@ -74,7 +87,13 @@ impl LimixApp {
             brush_opacity: 100.0,
             brush_flow: 100.0,
             primary_color: [0.0, 0.0, 0.0], 
+            secondary_color: [1.0, 1.0, 1.0],
             last_draw_pos: None,
+
+            selection_drag_start: None,
+            gradient_start: None,
+            clone_source: None,
+            sponge_saturate: false,
             
             renaming_layer: None,
             dragging_layer: None,
@@ -113,6 +132,134 @@ impl eframe::App for LimixApp {
                 
                 let mut needs_gpu_refresh = false;
                 let mut context_action: Option<(String, usize, usize)> = None;
+
+                // ================================================================
+                // RACCOURCIS CLAVIER (style Photoshop)
+                // ================================================================
+                ctx.input(|inp| {
+                    // --- Outils ---
+                    // V = Déplacement
+                    if inp.key_pressed(egui::Key::V) && !inp.modifiers.ctrl { self.current_tool = Tool::Move; }
+                    // C = Recadrage
+                    if inp.key_pressed(egui::Key::C) && !inp.modifiers.ctrl { self.current_tool = Tool::Crop; }
+                    // M = Sélection Rectangulaire / Shift+M = Elliptique
+                    if inp.key_pressed(egui::Key::M) && !inp.modifiers.ctrl {
+                        if inp.modifiers.shift { self.current_tool = Tool::SelectionEllipse; }
+                        else { self.current_tool = Tool::SelectionRect; }
+                    }
+                    // L = Lasso / Shift+L = Lasso Polygonal
+                    if inp.key_pressed(egui::Key::L) && !inp.modifiers.ctrl {
+                        if inp.modifiers.shift { self.current_tool = Tool::LassoPoly; }
+                        else { self.current_tool = Tool::LassoFree; }
+                    }
+                    // W = Baguette Magique / Shift+W = Sélection Rapide
+                    if inp.key_pressed(egui::Key::W) && !inp.modifiers.ctrl {
+                        if inp.modifiers.shift { self.current_tool = Tool::SelectQuick; }
+                        else { self.current_tool = Tool::MagicWand; }
+                    }
+                    // B = Pinceau / Shift+B = Crayon
+                    if inp.key_pressed(egui::Key::B) && !inp.modifiers.ctrl {
+                        if inp.modifiers.shift { self.current_tool = Tool::Pencil; }
+                        else { self.current_tool = Tool::Brush; }
+                    }
+                    // E = Gomme
+                    if inp.key_pressed(egui::Key::E) && !inp.modifiers.ctrl { self.current_tool = Tool::Eraser; }
+                    // G = Pot de peinture / Shift+G = Dégradé
+                    if inp.key_pressed(egui::Key::G) && !inp.modifiers.ctrl {
+                        if inp.modifiers.shift { self.current_tool = Tool::Gradient; }
+                        else { self.current_tool = Tool::Fill; }
+                    }
+                    // S = Tampon Clone / Shift+S = Correcteur
+                    if inp.key_pressed(egui::Key::S) && !inp.modifiers.ctrl {
+                        if inp.modifiers.shift { self.current_tool = Tool::HealingBrush; }
+                        else { self.current_tool = Tool::CloneStamp; }
+                    }
+                    // I = Pipette
+                    if inp.key_pressed(egui::Key::I) && !inp.modifiers.ctrl { self.current_tool = Tool::Eyedropper; }
+                    // R = Flou / Shift+R = Netteté / Alt+R = Doigt
+                    if inp.key_pressed(egui::Key::R) && !inp.modifiers.ctrl {
+                        if inp.modifiers.shift { self.current_tool = Tool::Sharpen; }
+                        else if inp.modifiers.alt { self.current_tool = Tool::Smudge; }
+                        else { self.current_tool = Tool::Blur; }
+                    }
+                    // O = Densité + / Shift+O = Densité - / Alt+O = Éponge
+                    if inp.key_pressed(egui::Key::O) && !inp.modifiers.ctrl {
+                        if inp.modifiers.shift { self.current_tool = Tool::Dodge; }
+                        else if inp.modifiers.alt { self.current_tool = Tool::Sponge; }
+                        else { self.current_tool = Tool::Burn; }
+                    }
+                    // P = Plume
+                    if inp.key_pressed(egui::Key::P) && !inp.modifiers.ctrl { self.current_tool = Tool::Pen; }
+                    // U = Formes
+                    if inp.key_pressed(egui::Key::U) && !inp.modifiers.ctrl { self.current_tool = Tool::Shapes; }
+                    // T = Texte
+                    if inp.key_pressed(egui::Key::T) && !inp.modifiers.ctrl { self.current_tool = Tool::Text; }
+
+                    // --- Taille du pinceau ---
+                    // ] = Augmenter la taille
+                    if inp.key_pressed(egui::Key::CloseBracket) {
+                        let step = if self.brush_size < 10.0 { 1.0 } else if self.brush_size < 100.0 { 5.0 } else { 10.0 };
+                        self.brush_size = (self.brush_size + step).min(500.0);
+                    }
+                    // [ = Diminuer la taille
+                    if inp.key_pressed(egui::Key::OpenBracket) {
+                        let step = if self.brush_size <= 10.0 { 1.0 } else if self.brush_size <= 100.0 { 5.0 } else { 10.0 };
+                        self.brush_size = (self.brush_size - step).max(1.0);
+                    }
+
+                    // --- Dureté du pinceau ---
+                    // Shift+] = Augmenter la dureté
+                    if inp.key_pressed(egui::Key::CloseBracket) && inp.modifiers.shift {
+                        self.brush_hardness = (self.brush_hardness + 10.0).min(100.0);
+                    }
+                    // Shift+[ = Diminuer la dureté
+                    if inp.key_pressed(egui::Key::OpenBracket) && inp.modifiers.shift {
+                        self.brush_hardness = (self.brush_hardness - 10.0).max(0.0);
+                    }
+
+                    // --- Sélection ---
+                    // Escape = Désélectionner
+                    if inp.key_pressed(egui::Key::Escape) { 
+                        self.engine.selection_mask = None;
+                        self.selection_drag_start = None;
+                        self.gradient_start = None;
+                    }
+                    // Ctrl+D = Désélectionner
+                    if inp.key_pressed(egui::Key::D) && inp.modifiers.ctrl { 
+                        self.engine.selection_mask = None;
+                    }
+                    // Ctrl+A = Tout sélectionner
+                    if inp.key_pressed(egui::Key::A) && inp.modifiers.ctrl {
+                        let w = self.engine.width;
+                        let h = self.engine.height;
+                        self.engine.selection_mask = Some(vec![255u8; w * h]);
+                        needs_gpu_refresh = true;
+                    }
+
+                    // --- Zoom ---
+                    // Ctrl++ ou Ctrl+= = Zoom avant
+                    if inp.key_pressed(egui::Key::Equals) && inp.modifiers.ctrl {
+                        self.zoom = (self.zoom + 0.1).min(5.0);
+                    }
+                    // Ctrl+- = Zoom arrière
+                    if inp.key_pressed(egui::Key::Minus) && inp.modifiers.ctrl {
+                        self.zoom = (self.zoom - 0.1).max(0.05);
+                    }
+                    // Ctrl+0 = Réinitialiser le zoom (fit to screen)
+                    if inp.key_pressed(egui::Key::Num0) && inp.modifiers.ctrl {
+                        self.zoom = 1.0;
+                    }
+
+                    // --- Calques ---
+                    // Ctrl+Shift+N = Nouveau calque
+                    if inp.key_pressed(egui::Key::N) && inp.modifiers.ctrl && inp.modifiers.shift {
+                        let insert_idx = if !self.engine.layers.is_empty() { self.active_layer + 1 } else { 0 };
+                        let depth = if !self.engine.layers.is_empty() { self.engine.layers[self.active_layer].depth } else { 0 };
+                        self.engine.insert_layer(insert_idx, &format!("Calque {}", self.engine.layers.len() + 1), depth);
+                        self.active_layer = insert_idx;
+                        needs_gpu_refresh = true;
+                    }
+                });
 
                 egui::TopBottomPanel::top("top_menu").show(ctx, |ui| {
                     ui.add_space(2.0); 
@@ -233,6 +380,54 @@ impl eframe::App for LimixApp {
                                 ui.label("Opacité :"); ui.add(egui::Slider::new(&mut self.brush_opacity, 0.0..=100.0).text("%")); ui.separator();
                                 ui.label("Flux :"); ui.add(egui::Slider::new(&mut self.brush_flow, 0.0..=100.0).text("%"));
                             }
+                            Tool::Blur | Tool::Sharpen | Tool::Smudge | Tool::Burn | Tool::Dodge => {
+                                ui.label("Taille :"); ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=500.0).text("px")); ui.separator();
+                                ui.label("Force :"); ui.add(egui::Slider::new(&mut self.brush_opacity, 1.0..=100.0).text("%"));
+                            }
+                            Tool::Sponge => {
+                                ui.label("Taille :"); ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=500.0).text("px")); ui.separator();
+                                ui.label("Force :"); ui.add(egui::Slider::new(&mut self.brush_opacity, 1.0..=100.0).text("%")); ui.separator();
+                                ui.label("Mode :");
+                                ui.selectable_value(&mut self.sponge_saturate, false, "Désaturer");
+                                ui.selectable_value(&mut self.sponge_saturate, true, "Saturer");
+                            }
+                            Tool::CloneStamp => {
+                                ui.label("Taille :"); ui.add(egui::Slider::new(&mut self.brush_size, 1.0..=500.0).text("px")); ui.separator();
+                                ui.label("Opacité :"); ui.add(egui::Slider::new(&mut self.brush_opacity, 0.0..=100.0).text("%")); ui.separator();
+                                if self.clone_source.is_some() {
+                                    let (sx, sy) = self.clone_source.unwrap();
+                                    ui.label(format!("Source : ({:.0}, {:.0})", sx, sy));
+                                } else {
+                                    ui.label("Alt+Clic pour définir la source");
+                                }
+                            }
+                            Tool::Gradient => {
+                                ui.label("Début :"); ui.color_edit_button_rgb(&mut self.primary_color); ui.separator();
+                                ui.label("Fin :"); ui.color_edit_button_rgb(&mut self.secondary_color); ui.separator();
+                                ui.label("Opacité :"); ui.add(egui::Slider::new(&mut self.brush_opacity, 0.0..=100.0).text("%")); ui.separator();
+                                if self.gradient_start.is_some() { ui.label("Relâcher pour appliquer..."); } else { ui.label("Cliquer-glisser pour tracer"); }
+                            }
+                            Tool::Fill => {
+                                ui.label("Tolérance :"); ui.add(egui::Slider::new(&mut self.brush_hardness, 0.0..=100.0).text("")); ui.separator();
+                                ui.label("Opacité :"); ui.add(egui::Slider::new(&mut self.brush_opacity, 0.0..=100.0).text("%"));
+                            }
+                            Tool::MagicWand | Tool::SelectQuick => {
+                                ui.label("Tolérance :"); ui.add(egui::Slider::new(&mut self.brush_hardness, 0.0..=100.0).text("")); ui.separator();
+                                if self.engine.selection_mask.is_some() {
+                                    if ui.button("✕ Désélectionner").clicked() { self.engine.selection_mask = None; needs_gpu_refresh = true; }
+                                }
+                            }
+                            Tool::SelectionRect | Tool::SelectionEllipse => {
+                                if self.engine.selection_mask.is_some() {
+                                    if ui.button("✕ Désélectionner").clicked() { self.engine.selection_mask = None; needs_gpu_refresh = true; }
+                                }
+                            }
+                            Tool::Crop => {
+                                if let Some((sx, sy)) = self.selection_drag_start {
+                                    ui.label(format!("Origine : ({:.0}, {:.0})", sx, sy));
+                                }
+                                ui.label("Cliquer-glisser puis Entrée pour recadrer");
+                            }
                             Tool::Text => {
                                 ui.label("Police :"); if ui.button("Arial").clicked() {}
                                 ui.label("Taille :"); ui.add(egui::Slider::new(&mut self.brush_size, 8.0..=144.0).text("pt"));
@@ -256,37 +451,37 @@ impl eframe::App for LimixApp {
                     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(10.0);
-                            add_tool_button(ui, &mut self.current_tool, Tool::Move, egui::include_image!("../../assets/icons/move.svg"), "Déplacement");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Crop, egui::include_image!("../../assets/icons/crop.svg"), "Recadrage");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Move, egui::include_image!("../../assets/icons/move.svg"), "Déplacement [V]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Crop, egui::include_image!("../../assets/icons/crop.svg"), "Recadrage [C]");
                             ui.separator();
-                            add_tool_button(ui, &mut self.current_tool, Tool::SelectionRect, egui::include_image!("../../assets/icons/select_rect.svg"), "Sél. Rectangulaire");
-                            add_tool_button(ui, &mut self.current_tool, Tool::SelectionEllipse, egui::include_image!("../../assets/icons/select_ellipse.svg"), "Sél. Elliptique");
-                            add_tool_button(ui, &mut self.current_tool, Tool::LassoFree, egui::include_image!("../../assets/icons/lasso_free.svg"), "Lasso");
-                            add_tool_button(ui, &mut self.current_tool, Tool::LassoPoly, egui::include_image!("../../assets/icons/lasso_poly.svg"), "Lasso Polygonal");
+                            add_tool_button(ui, &mut self.current_tool, Tool::SelectionRect, egui::include_image!("../../assets/icons/select_rect.svg"), "Sél. Rectangulaire [M]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::SelectionEllipse, egui::include_image!("../../assets/icons/select_ellipse.svg"), "Sél. Elliptique [Shift+M]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::LassoFree, egui::include_image!("../../assets/icons/lasso_free.svg"), "Lasso [L]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::LassoPoly, egui::include_image!("../../assets/icons/lasso_poly.svg"), "Lasso Polygonal [Shift+L]");
                             add_tool_button(ui, &mut self.current_tool, Tool::LassoMagnetic, egui::include_image!("../../assets/icons/lasso_magnetic.svg"), "Lasso Magnétique");
-                            add_tool_button(ui, &mut self.current_tool, Tool::MagicWand, egui::include_image!("../../assets/icons/magic_wand.svg"), "Baguette Magique");
-                            add_tool_button(ui, &mut self.current_tool, Tool::SelectQuick, egui::include_image!("../../assets/icons/select_quick.svg"), "Sélection Rapide");
+                            add_tool_button(ui, &mut self.current_tool, Tool::MagicWand, egui::include_image!("../../assets/icons/magic_wand.svg"), "Baguette Magique [W]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::SelectQuick, egui::include_image!("../../assets/icons/select_quick.svg"), "Sélection Rapide [Shift+W]");
                             add_tool_button(ui, &mut self.current_tool, Tool::RemoveBg, egui::include_image!("../../assets/icons/remove_bg.svg"), "Supprimer le fond");
                             ui.separator();
-                            add_tool_button(ui, &mut self.current_tool, Tool::Brush, egui::include_image!("../../assets/icons/brush.svg"), "Pinceau");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Pencil, egui::include_image!("../../assets/icons/pencil.svg"), "Crayon");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Eraser, egui::include_image!("../../assets/icons/eraser.svg"), "Gomme");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Fill, egui::include_image!("../../assets/icons/fill.svg"), "Pot de peinture");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Gradient, egui::include_image!("../../assets/icons/gradient.svg"), "Dégradé");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Brush, egui::include_image!("../../assets/icons/brush.svg"), "Pinceau [B]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Pencil, egui::include_image!("../../assets/icons/pencil.svg"), "Crayon [Shift+B]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Eraser, egui::include_image!("../../assets/icons/eraser.svg"), "Gomme [E]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Fill, egui::include_image!("../../assets/icons/fill.svg"), "Pot de peinture [G]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Gradient, egui::include_image!("../../assets/icons/gradient.svg"), "Dégradé [Shift+G]");
                             ui.separator();
-                            add_tool_button(ui, &mut self.current_tool, Tool::CloneStamp, egui::include_image!("../../assets/icons/clone_stamp.svg"), "Tampon");
-                            add_tool_button(ui, &mut self.current_tool, Tool::HealingBrush, egui::include_image!("../../assets/icons/healing_brush.svg"), "Correcteur");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Eyedropper, egui::include_image!("../../assets/icons/eyedropper.svg"), "Pipette");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Sharpen, egui::include_image!("../../assets/icons/sharpen.svg"), "Netteté");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Blur, egui::include_image!("../../assets/icons/blur.svg"), "Goutte d'eau (Flou)");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Smudge, egui::include_image!("../../assets/icons/smudge.svg"), "Doigt");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Burn, egui::include_image!("../../assets/icons/burn.svg"), "Densité +");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Dodge, egui::include_image!("../../assets/icons/dodge.svg"), "Densité -");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Sponge, egui::include_image!("../../assets/icons/sponge.svg"), "Éponge");
+                            add_tool_button(ui, &mut self.current_tool, Tool::CloneStamp, egui::include_image!("../../assets/icons/clone_stamp.svg"), "Tampon Clone [S]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::HealingBrush, egui::include_image!("../../assets/icons/healing_brush.svg"), "Correcteur [Shift+S]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Eyedropper, egui::include_image!("../../assets/icons/eyedropper.svg"), "Pipette [I]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Sharpen, egui::include_image!("../../assets/icons/sharpen.svg"), "Netteté [Shift+R]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Blur, egui::include_image!("../../assets/icons/blur.svg"), "Flou [R]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Smudge, egui::include_image!("../../assets/icons/smudge.svg"), "Doigt [Alt+R]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Burn, egui::include_image!("../../assets/icons/burn.svg"), "Densité + [O]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Dodge, egui::include_image!("../../assets/icons/dodge.svg"), "Densité - [Shift+O]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Sponge, egui::include_image!("../../assets/icons/sponge.svg"), "Éponge [Alt+O]");
                             ui.separator();
-                            add_tool_button(ui, &mut self.current_tool, Tool::Pen, egui::include_image!("../../assets/icons/pen.svg"), "Plume");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Shapes, egui::include_image!("../../assets/icons/shapes.svg"), "Formes");
-                            add_tool_button(ui, &mut self.current_tool, Tool::Text, egui::include_image!("../../assets/icons/text.svg"), "Texte");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Pen, egui::include_image!("../../assets/icons/pen.svg"), "Plume [P]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Shapes, egui::include_image!("../../assets/icons/shapes.svg"), "Formes [U]");
+                            add_tool_button(ui, &mut self.current_tool, Tool::Text, egui::include_image!("../../assets/icons/text.svg"), "Texte [T]");
                             ui.add_space(10.0);
                         });
                     });
@@ -298,7 +493,10 @@ impl eframe::App for LimixApp {
                 egui::SidePanel::right("layers_panel").resizable(true).min_width(280.0).show(ctx, |ui| {
                     
                     ui.add_space(10.0); ui.heading("Couleurs"); ui.separator();
-                    ui.horizontal(|ui| { ui.label("Active :"); ui.color_edit_button_rgb(&mut self.primary_color); });
+                    ui.horizontal(|ui| { 
+                        ui.label("Active :"); ui.color_edit_button_rgb(&mut self.primary_color);
+                        ui.label("  Fond :"); ui.color_edit_button_rgb(&mut self.secondary_color);
+                    });
                     ui.add_space(5.0); ui.label("Nuancier Rapide :"); ui.add_space(5.0);
                     ui.horizontal_wrapped(|ui| {
                         let swatches = [
@@ -850,25 +1048,89 @@ impl eframe::App for LimixApp {
                                         }
                                     }
                                 } 
-                                // === OUTILS CLASSIQUES (Pinceau, Gomme) ===
+                                 // === OUTILS CLASSIQUES ===
                                 else {
                                     self.transform_state = None;
 
                                     if let Some(pos) = ui.input(|i| i.pointer.latest_pos()) {
                                         if image_rect.contains(pos) || response.dragged() {
-                                            if matches!(self.current_tool, Tool::Brush | Tool::Eraser) {
-                                                let screen_radius = (self.brush_size / 2.0) * self.zoom;
-                                                ui.painter().circle_stroke(pos, screen_radius, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200)));
-                                                ui.painter().circle_stroke(pos, screen_radius + 1.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 150)));
-                                                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                                            let screen_radius = (self.brush_size / 2.0) * self.zoom;
+                                            match self.current_tool {
+                                                Tool::Brush | Tool::Eraser | Tool::Pencil
+                                                | Tool::Blur | Tool::Sharpen | Tool::Smudge
+                                                | Tool::Burn | Tool::Dodge | Tool::Sponge
+                                                | Tool::CloneStamp | Tool::HealingBrush => {
+                                                    ui.painter().circle_stroke(pos, screen_radius, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200)));
+                                                    ui.painter().circle_stroke(pos, screen_radius + 1.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 150)));
+                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                                                }
+                                                Tool::Eyedropper => { ui.ctx().set_cursor_icon(egui::CursorIcon::Cell); }
+                                                Tool::Fill | Tool::MagicWand | Tool::SelectQuick => { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
+                                                _ => {}
                                             }
+                                        }
+                                    }
+
+                                    // Dessiner le contour de sélection actif (marching ants simplifié)
+                                    if let Some(ref mask) = self.engine.selection_mask {
+                                        let t = ui.input(|i| i.time) as f32;
+                                        let dash_phase = (t * 10.0) as isize;
+                                        let w = self.engine.width;
+                                        let h = self.engine.height;
+                                        for y in 0..h {
+                                            for x in 0..w {
+                                                if mask[y * w + x] > 0 {
+                                                    let is_edge = (x == 0 || mask[y * w + x - 1] == 0)
+                                                        || (x + 1 >= w || mask[y * w + x + 1] == 0)
+                                                        || (y == 0 || mask[(y-1) * w + x] == 0)
+                                                        || (y + 1 >= h || mask[(y+1) * w + x] == 0);
+                                                    if is_edge {
+                                                        let dash = ((x + y) as isize + dash_phase) % 8;
+                                                        let px_x = image_top_left_x + x as f32 * self.zoom;
+                                                        let px_y = image_top_left_y + y as f32 * self.zoom;
+                                                        let color = if dash < 4 { egui::Color32::BLACK } else { egui::Color32::WHITE };
+                                                        ui.painter().rect_filled(
+                                                            egui::Rect::from_min_size(egui::pos2(px_x, px_y), egui::vec2(self.zoom.max(1.0), self.zoom.max(1.0))),
+                                                            0.0, color,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        ctx.request_repaint(); // animation continue
+                                    }
+
+                                    // Visualisation du rectangle/ellipse en cours de tracé
+                                    if let Some((sx, sy)) = self.selection_drag_start {
+                                        if let Some(pos) = ui.input(|i| i.pointer.latest_pos()) {
+                                            let sx_screen = image_top_left_x + sx * self.zoom;
+                                            let sy_screen = image_top_left_y + sy * self.zoom;
+                                            let sel_rect = egui::Rect::from_min_max(
+                                                egui::pos2(sx_screen.min(pos.x), sy_screen.min(pos.y)),
+                                                egui::pos2(sx_screen.max(pos.x), sy_screen.max(pos.y)),
+                                            );
+                                            ui.painter().rect_stroke(sel_rect, 0.0, egui::Stroke::new(1.0, egui::Color32::WHITE));
+                                            ui.painter().rect_stroke(sel_rect.expand(1.0), 0.0, egui::Stroke::new(1.0, egui::Color32::BLACK));
+                                        }
+                                    }
+
+                                    // Visualisation du dégradé en cours
+                                    if let Some((gx, gy)) = self.gradient_start {
+                                        if let Some(pos) = ui.input(|i| i.pointer.latest_pos()) {
+                                            let gs = egui::pos2(image_top_left_x + gx * self.zoom, image_top_left_y + gy * self.zoom);
+                                            ui.painter().line_segment([gs, pos], egui::Stroke::new(2.0, egui::Color32::WHITE));
+                                            ui.painter().circle_filled(gs, 5.0, egui::Color32::from_rgb(
+                                                (self.primary_color[0]*255.0) as u8, (self.primary_color[1]*255.0) as u8, (self.primary_color[2]*255.0) as u8,
+                                            ));
+                                            ui.painter().circle_filled(pos, 5.0, egui::Color32::from_rgb(
+                                                (self.secondary_color[0]*255.0) as u8, (self.secondary_color[1]*255.0) as u8, (self.secondary_color[2]*255.0) as u8,
+                                            ));
                                         }
                                     }
 
                                     let active_depth = self.engine.layers[self.active_layer].depth;
                                     let mut parent_is_hidden = false;
                                     let mut current_depth = active_depth;
-                                    
                                     for i in self.active_layer + 1 .. self.engine.layers.len() {
                                         let l = &self.engine.layers[i];
                                         if l.is_folder && l.depth < current_depth {
@@ -878,30 +1140,132 @@ impl eframe::App for LimixApp {
                                         }
                                     }
 
-                                    let can_draw = !self.engine.layers.is_empty() 
-                                        && self.engine.layers[self.active_layer].visible 
-                                        && !parent_is_hidden 
-                                        && !self.engine.layers[self.active_layer].locked 
+                                    let can_draw = !self.engine.layers.is_empty()
+                                        && self.engine.layers[self.active_layer].visible
+                                        && !parent_is_hidden
+                                        && !self.engine.layers[self.active_layer].locked
                                         && !self.engine.layers[self.active_layer].is_folder;
 
-                                    if response.dragged() || response.clicked() {
-                                        if can_draw {
-                                            if let Some(p_pos) = response.interact_pointer_pos() {
-                                                let local_x = (p_pos.x - image_top_left_x) / self.zoom;
-                                                let local_y = (p_pos.y - image_top_left_y) / self.zoom;
-                                                let (last_x, last_y) = self.last_draw_pos.unwrap_or((local_x, local_y));
-                                                
-                                                if self.current_tool == Tool::Brush {
-                                                    if crate::tools::brush::apply(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_hardness, self.brush_opacity, self.brush_flow, self.primary_color) {
-                                                        modified = true;
-                                                    }
-                                                } else if self.current_tool == Tool::Eraser {
-                                                    if crate::tools::eraser::apply(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_hardness, self.brush_opacity, self.brush_flow) {
-                                                        modified = true;
+                                    let alt_down = ui.input(|i| i.modifiers.alt);
+                                    let pointer_released = ui.input(|i| i.pointer.any_released());
+
+                                    // --- Gestion du clic/drag ---
+                                    if response.drag_started() {
+                                        if let Some(p_pos) = response.interact_pointer_pos() {
+                                            let local_x = (p_pos.x - image_top_left_x) / self.zoom;
+                                            let local_y = (p_pos.y - image_top_left_y) / self.zoom;
+                                            match self.current_tool {
+                                                Tool::SelectionRect | Tool::SelectionEllipse | Tool::Crop => {
+                                                    self.selection_drag_start = Some((local_x, local_y));
+                                                }
+                                                Tool::Gradient => {
+                                                    self.gradient_start = Some((local_x, local_y));
+                                                }
+                                                Tool::CloneStamp => {
+                                                    if alt_down {
+                                                        self.clone_source = Some((local_x, local_y));
                                                     }
                                                 }
-                                                self.last_draw_pos = Some((local_x, local_y));
+                                                _ => {}
                                             }
+                                        }
+                                    }
+
+                                    if pointer_released {
+                                        // Appliquer la sélection rect/ellipse
+                                        if let Some((sx, sy)) = self.selection_drag_start {
+                                            if let Some(p_pos) = ui.input(|i| i.pointer.interact_pos()) {
+                                                let ex = (p_pos.x - image_top_left_x) / self.zoom;
+                                                let ey = (p_pos.y - image_top_left_y) / self.zoom;
+                                                let add = ui.input(|i| i.modifiers.shift);
+                                                match self.current_tool {
+                                                    Tool::SelectionRect => {
+                                                        crate::tools::selection::apply_rect(&mut self.engine, sx, sy, ex, ey, add);
+                                                        needs_gpu_refresh = true;
+                                                    }
+                                                    Tool::SelectionEllipse => {
+                                                        crate::tools::selection::apply_ellipse(&mut self.engine, sx, sy, ex, ey, add);
+                                                        needs_gpu_refresh = true;
+                                                    }
+                                                    Tool::Crop => {
+                                                        let x = sx.min(ex).max(0.0) as usize;
+                                                        let y = sy.min(ey).max(0.0) as usize;
+                                                        let nw = (ex - sx).abs().min(self.engine.width as f32) as usize;
+                                                        let nh = (ey - sy).abs().min(self.engine.height as f32) as usize;
+                                                        if nw > 0 && nh > 0 {
+                                                            crate::tools::crop::apply(&mut self.engine, x, y, nw, nh);
+                                                            self.texture = None; // force recréation de la texture
+                                                            needs_gpu_refresh = true;
+                                                        }
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            self.selection_drag_start = None;
+                                        }
+                                        // Appliquer le dégradé
+                                        if let Some((gx, gy)) = self.gradient_start {
+                                            if can_draw {
+                                                if let Some(p_pos) = ui.input(|i| i.pointer.interact_pos()) {
+                                                    let ex = (p_pos.x - image_top_left_x) / self.zoom;
+                                                    let ey = (p_pos.y - image_top_left_y) / self.zoom;
+                                                    crate::tools::gradient::apply_linear(&mut self.engine, self.active_layer, gx, gy, ex, ey, self.primary_color, self.secondary_color, self.brush_opacity);
+                                                    modified = true;
+                                                }
+                                            }
+                                            self.gradient_start = None;
+                                        }
+                                    }
+
+                                    if response.dragged() || response.clicked() {
+                                        if let Some(p_pos) = response.interact_pointer_pos() {
+                                            let local_x = (p_pos.x - image_top_left_x) / self.zoom;
+                                            let local_y = (p_pos.y - image_top_left_y) / self.zoom;
+                                            let (last_x, last_y) = self.last_draw_pos.unwrap_or((local_x, local_y));
+
+                                            if self.current_tool == Tool::Eyedropper {
+                                                let lx = local_x as usize;
+                                                let ly = local_y as usize;
+                                                if lx < self.engine.width && ly < self.engine.height {
+                                                    let flattened = self.engine.render_flattened();
+                                                    let color = flattened[ly * self.engine.width + lx];
+                                                    self.primary_color = [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0];
+                                                }
+                                            } else if self.current_tool == Tool::MagicWand || self.current_tool == Tool::SelectQuick {
+                                                if response.clicked() {
+                                                    let lx = local_x as usize;
+                                                    let ly = local_y as usize;
+                                                    let add = ui.input(|i| i.modifiers.shift);
+                                                    crate::tools::magic_wand::apply(&mut self.engine, lx, ly, self.brush_hardness, add);
+                                                    needs_gpu_refresh = true;
+                                                }
+                                            } else if can_draw {
+                                                match self.current_tool {
+                                                    Tool::Brush => { if crate::tools::brush::apply(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_hardness, self.brush_opacity, self.brush_flow, self.primary_color) { modified = true; } }
+                                                    Tool::Eraser => { if crate::tools::eraser::apply(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_hardness, self.brush_opacity, self.brush_flow) { modified = true; } }
+                                                    Tool::Pencil => { if crate::tools::pencil::apply(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_opacity, self.primary_color) { modified = true; } }
+                                                    Tool::Fill => {
+                                                        if response.clicked() {
+                                                            if crate::tools::fill::apply(&mut self.engine, self.active_layer, local_x as usize, local_y as usize, self.primary_color, self.brush_hardness, self.brush_opacity) { modified = true; }
+                                                        }
+                                                    }
+                                                    Tool::Blur => { if crate::tools::retouch::apply_blur(&mut self.engine, self.active_layer, local_x, local_y, self.brush_size, self.brush_opacity) { modified = true; } }
+                                                    Tool::Sharpen => { if crate::tools::retouch::apply_sharpen(&mut self.engine, self.active_layer, local_x, local_y, self.brush_size, self.brush_opacity) { modified = true; } }
+                                                    Tool::Smudge => { if crate::tools::retouch::apply_smudge(&mut self.engine, self.active_layer, last_x, last_y, local_x, local_y, self.brush_size, self.brush_opacity) { modified = true; } }
+                                                    Tool::Burn => { if crate::tools::retouch::apply_burn(&mut self.engine, self.active_layer, local_x, local_y, self.brush_size, self.brush_opacity) { modified = true; } }
+                                                    Tool::Dodge => { if crate::tools::retouch::apply_dodge(&mut self.engine, self.active_layer, local_x, local_y, self.brush_size, self.brush_opacity) { modified = true; } }
+                                                    Tool::Sponge => { if crate::tools::retouch::apply_sponge(&mut self.engine, self.active_layer, local_x, local_y, self.brush_size, self.brush_opacity, self.sponge_saturate) { modified = true; } }
+                                                    Tool::CloneStamp | Tool::HealingBrush => {
+                                                        if !alt_down {
+                                                            if let Some((sx, sy)) = self.clone_source {
+                                                                if crate::tools::retouch::apply_clone(&mut self.engine, self.active_layer, local_x, local_y, sx, sy, self.brush_size, self.brush_opacity) { modified = true; }
+                                                            }
+                                                        }
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            self.last_draw_pos = Some((local_x, local_y));
                                         }
                                     } else { self.last_draw_pos = None; }
                                 }
