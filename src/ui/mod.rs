@@ -1,14 +1,14 @@
 pub mod welcome;
 
 use eframe::egui;
-use crate::core::canvas::{Canvas, Rgba};
+use crate::core::canvas::{Canvas, Rgba, LayerType};
 use crate::tools::Tool;
-// L'import `crate::tools::transform` a été retiré pour éviter le warning car on l'appelle directement via crate::tools::transform::apply_transform_absolute
 
 #[derive(PartialEq)]
 pub enum AppState {
     WelcomeScreen, 
     Workspace,     
+    CfsEditor, // --- NOUVELLE PAGE PLEIN ÉCRAN ! ---
 }
 
 pub struct NewProjectParams {
@@ -49,6 +49,11 @@ pub struct LimixApp {
     pub state: AppState,       
     pub show_settings: bool,   
     pub new_proj_params: NewProjectParams, 
+
+    // --- MODULE CFS (Architecture Plein Écran) ---
+    pub cfs_code: String,
+    pub cfs_preview_texture: Option<egui::TextureHandle>, 
+    pub editing_cfs_index: Option<usize>,                 
 }
 
 impl LimixApp {
@@ -62,6 +67,16 @@ impl LimixApp {
         
         engine.add_layer("Arrière-plan", 0);
         engine.add_layer("Tracé Principal", 0);
+
+        let default_js = r#"// Limix Pro - CFS Mode
+// Cible du rendu : Layer Actif
+
+function render(ctx) {
+    // Exemple : Dessiner un rectangle Orange LP
+    ctx.fillStyle = "rgba(250, 181, 99, 1.0)";
+    ctx.fillRect(50, 50, 400, 400);
+}
+"#.to_string();
 
         Self {
             engine,
@@ -86,6 +101,10 @@ impl LimixApp {
             state: AppState::WelcomeScreen,
             show_settings: false,
             new_proj_params: NewProjectParams::default(),
+            
+            cfs_code: default_js,
+            cfs_preview_texture: None,
+            editing_cfs_index: None,
         }
     }
 
@@ -109,6 +128,7 @@ impl eframe::App for LimixApp {
         
         match self.state {
             AppState::WelcomeScreen => { crate::ui::welcome::show(self, ctx); }
+            AppState::CfsEditor => { crate::cfs::editor::show(self, ctx); } // APPEL DE LA PAGE PLEIN ÉCRAN
             AppState::Workspace => {
                 
                 let mut needs_gpu_refresh = false;
@@ -170,6 +190,14 @@ impl eframe::App for LimixApp {
                             ui.separator();
                             if ui.button("Fusionner vers le bas").clicked() {}
                             if ui.button("Aplatir l'image").clicked() {}
+                            ui.separator();
+                            // BOUTON CFS DANS LE MENU
+                            if ui.button("⚡ Nouveau Script CFS...").clicked() {
+                                self.editing_cfs_index = None;
+                                self.cfs_preview_texture = None;
+                                self.state = AppState::CfsEditor; 
+                                ui.close_menu();
+                            }
                             ui.separator();
                             if ui.button("Style de calque...").clicked() {}
                             if ui.button("Masque de calque...").clicked() {}
@@ -292,9 +320,6 @@ impl eframe::App for LimixApp {
                     });
                 });
 
-                // ==============================================================================
-                // PANNEAU DE DROITE (COULEURS + CALQUES MODULAIRES AVEC DRAG&DROP/DOSSIERS)
-                // ==============================================================================
                 egui::SidePanel::right("layers_panel").resizable(true).min_width(280.0).show(ctx, |ui| {
                     
                     ui.add_space(10.0); ui.heading("Couleurs"); ui.separator();
@@ -344,7 +369,8 @@ impl eframe::App for LimixApp {
                     }
                     ui.separator();
                     
-                    let mut move_action = None;
+                    // CORRECTION ICI : Typage explicite du Option
+                    let mut move_action: Option<(usize, usize, &str)> = None;
 
                     let bottom_bar_height = 40.0; 
                     let available_height = ui.available_height();
@@ -372,7 +398,7 @@ impl eframe::App for LimixApp {
 
                                 visible_indices.push((i, current_hidden_depth.is_some()));
                                 
-                                if layer.is_folder {
+                                if layer.layer_type == LayerType::Folder {
                                     if !layer.expanded && current_collapsed_depth.is_none() { 
                                         current_collapsed_depth = Some(layer.depth); 
                                     }
@@ -410,7 +436,7 @@ impl eframe::App for LimixApp {
                                         ui.add_space(indentation);
 
                                         let arrow_width = 16.0;
-                                        if layer.is_folder {
+                                        if layer.layer_type == LayerType::Folder {
                                             let arrow = if layer.expanded { "v" } else { ">" };
                                             let arrow_resp = ui.add_sized(
                                                 [arrow_width, row_height], 
@@ -438,7 +464,11 @@ impl eframe::App for LimixApp {
                                             }
                                         }
 
-                                        let icon = if layer.is_folder { "📁" } else { "📄" };
+                                        let icon = match layer.layer_type {
+                                            LayerType::Folder => "📁",
+                                            LayerType::Dynamic => "⚡",
+                                            LayerType::Raster => "📄",
+                                        };
                                         let mut is_renaming = false;
 
                                         if let Some((ren_idx, ref mut new_name)) = self.renaming_layer {
@@ -472,6 +502,14 @@ impl eframe::App for LimixApp {
                                 response.context_menu(|ui| {
                                     if ui.button("✏ Renommer").clicked() { context_action = Some(("rename".to_string(), i, layer.depth)); ui.close_menu(); }
                                     if ui.button("📁 Nouveau Groupe").clicked() { context_action = Some(("new_folder".to_string(), i, layer.depth)); ui.close_menu(); }
+                                    
+                                    if layer.layer_type == LayerType::Dynamic {
+                                        if ui.button("⚡ Éditer le Script (CFS)").clicked() { 
+                                            context_action = Some(("open_cfs".to_string(), i, layer.depth)); 
+                                            ui.close_menu(); 
+                                        }
+                                    }
+
                                     ui.separator();
                                     if ui.button("📄 Dupliquer").clicked() { context_action = Some(("duplicate".to_string(), i, layer.depth)); ui.close_menu(); }
                                     ui.separator();
@@ -481,7 +519,7 @@ impl eframe::App for LimixApp {
                                 if let Some(drag_idx) = self.dragging_layer {
                                     if response.hovered() && drag_idx != i {
                                         let pointer_y = ui.input(|inp| inp.pointer.hover_pos().unwrap().y);
-                                        if layer.is_folder && pointer_y > rect.top() + 6.0 && pointer_y < rect.bottom() - 6.0 {
+                                        if layer.layer_type == LayerType::Folder && pointer_y > rect.top() + 6.0 && pointer_y < rect.bottom() - 6.0 {
                                             ui.painter().rect_stroke(rect, 2.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 136, 0)));
                                             if ui.input(|inp| inp.pointer.any_released()) { move_action = Some((drag_idx, i, "inside")); }
                                         } else if pointer_y < rect.center().y {
@@ -514,7 +552,7 @@ impl eframe::App for LimixApp {
                                 if !self.engine.layers.is_empty() {
                                     let active = &self.engine.layers[self.active_layer];
                                     depth = active.depth;
-                                    if active.is_folder && active.expanded {
+                                    if active.layer_type == LayerType::Folder && active.expanded {
                                         depth += 1;
                                         insert_idx = self.active_layer;
                                     } else {
@@ -533,7 +571,7 @@ impl eframe::App for LimixApp {
                                 if !self.engine.layers.is_empty() {
                                     let active = &self.engine.layers[self.active_layer];
                                     depth = active.depth;
-                                    if active.is_folder && active.expanded {
+                                    if active.layer_type == LayerType::Folder && active.expanded {
                                         depth += 1;
                                         insert_idx = self.active_layer;
                                     } else {
@@ -587,6 +625,14 @@ impl eframe::App for LimixApp {
                                     needs_gpu_refresh = true;
                                 }
                             }
+                            "open_cfs" => { 
+                                if let Some(code) = &self.engine.layers[i].script {
+                                    self.cfs_code = code.clone();
+                                }
+                                self.editing_cfs_index = Some(i);
+                                self.cfs_preview_texture = None;
+                                self.state = AppState::CfsEditor; 
+                            } 
                             _ => {}
                         }
                     }
@@ -645,20 +691,17 @@ impl eframe::App for LimixApp {
 
                                 let mut modified = false;
 
-                                // === MOTEUR DE DÉPLACEMENT & SÉLECTION DIRECTE ===
                                 if self.current_tool == Tool::Move {
                                     
                                     let mut clicked_inside_current_bbox = false;
                                     let mut s_rect_expanded = egui::Rect::NOTHING;
 
-                                    // ICI ON UTILISE "_" POUR IGNORER LE VEC D'OVERFLOW (6ème élément)
-                                    if let Some((_, _, _, ref orig_bbox, ref mut current_bbox, ref mut dragging_handle)) = self.transform_state {
+                                    if let Some((_, _, _, ref _orig_bbox, ref mut current_bbox, ref mut _dragging_handle)) = self.transform_state {
                                         let s_min = egui::pos2(image_top_left_x + current_bbox.min.x * self.zoom, image_top_left_y + current_bbox.min.y * self.zoom);
                                         let s_max = egui::pos2(image_top_left_x + current_bbox.max.x * self.zoom, image_top_left_y + current_bbox.max.y * self.zoom);
                                         s_rect_expanded = egui::Rect::from_min_max(s_min, s_max).expand(12.0); 
                                     }
 
-                                    // --- 1. SÉLECTION DIRECTE ET DÉSÉLECTION GLOBALE ---
                                     if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                                         if s_rect_expanded.contains(pos) && self.transform_active {
                                             clicked_inside_current_bbox = true;
@@ -681,10 +724,10 @@ impl eframe::App for LimixApp {
                                                             if layer.depth > hd { continue; } else { current_hidden_depth = None; }
                                                         }
                                                         if !layer.visible {
-                                                            if layer.is_folder { current_hidden_depth = Some(layer.depth); }
+                                                            if layer.layer_type == LayerType::Folder { current_hidden_depth = Some(layer.depth); }
                                                             continue;
                                                         }
-                                                        if layer.is_folder || layer.locked { continue; } 
+                                                        if layer.layer_type == LayerType::Folder || layer.locked { continue; } 
                                                         
                                                         if layer.pixels[ly * self.engine.width + lx].a > 0 {
                                                             found_layer = Some(i);
@@ -710,7 +753,6 @@ impl eframe::App for LimixApp {
                                                 } else {
                                                     self.transform_state = None;
                                                 }
-                                                clicked_inside_current_bbox = true;
                                             } 
                                             else if response.clicked() || response.drag_started() {
                                                 self.transform_active = false;
@@ -719,7 +761,6 @@ impl eframe::App for LimixApp {
                                         }
                                     }
 
-                                    // --- 2. LOGIQUE DE REDIMENSIONNEMENT / DÉPLACEMENT ---
                                     if self.transform_active && !self.engine.layers.is_empty() && !self.engine.layers[self.active_layer].locked {
                                         let active_idx = self.active_layer;
                                         
@@ -744,7 +785,6 @@ impl eframe::App for LimixApp {
 
                                         let mut transform_args = None;
                                         
-                                        // ICI ON MET BIEN '_' POUR LE 3ème ELEMENT (OVERFLOW)
                                         if let Some((_, _, _, ref orig_bbox, ref mut current_bbox, ref mut dragging_handle)) = self.transform_state {
                                             
                                             let s_min = egui::pos2(image_top_left_x + current_bbox.min.x * self.zoom, image_top_left_y + current_bbox.min.y * self.zoom);
@@ -850,7 +890,6 @@ impl eframe::App for LimixApp {
                                         }
                                     }
                                 } 
-                                // === OUTILS CLASSIQUES (Pinceau, Gomme) ===
                                 else {
                                     self.transform_state = None;
 
@@ -871,7 +910,7 @@ impl eframe::App for LimixApp {
                                     
                                     for i in self.active_layer + 1 .. self.engine.layers.len() {
                                         let l = &self.engine.layers[i];
-                                        if l.is_folder && l.depth < current_depth {
+                                        if l.layer_type == LayerType::Folder && l.depth < current_depth {
                                             if !l.visible { parent_is_hidden = true; break; }
                                             current_depth = l.depth;
                                             if current_depth == 0 { break; }
@@ -882,7 +921,7 @@ impl eframe::App for LimixApp {
                                         && self.engine.layers[self.active_layer].visible 
                                         && !parent_is_hidden 
                                         && !self.engine.layers[self.active_layer].locked 
-                                        && !self.engine.layers[self.active_layer].is_folder;
+                                        && self.engine.layers[self.active_layer].layer_type == LayerType::Raster;
 
                                     if response.dragged() || response.clicked() {
                                         if can_draw {
@@ -917,8 +956,8 @@ impl eframe::App for LimixApp {
                     ctx.request_repaint();
                 }
 
-            } // Fin de AppState::Workspace
-        } // Fin du match state
+            } 
+        } 
     }
 }
 

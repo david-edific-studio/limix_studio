@@ -1,3 +1,4 @@
+pub mod cfs;
 mod core;
 mod ui;
 mod app;

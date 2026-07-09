@@ -6,6 +6,14 @@ pub struct Rgba {
     pub a: u8,
 }
 
+// --- NOUVEAUTÉ : La nature du calque ---
+#[derive(Clone, PartialEq, Debug)]
+pub enum LayerType {
+    Raster,   // Calque classique (Pinceau, Gomme, etc.)
+    Folder,   // Dossier
+    Dynamic,  // CFS Mode (Code For Scratch)
+}
+
 #[derive(Clone)]
 pub struct Layer {
     pub name: String,
@@ -14,16 +22,22 @@ pub struct Layer {
     pub opacity: f32,
     pub blend_mode: usize,
     
-    pub is_folder: bool,
+    // Type et hiérarchie
+    pub layer_type: LayerType,
     pub expanded: bool,
     pub depth: usize, 
     
+    // --- NOUVEAUTÉ CFS : Le code source ---
+    // Si c'est un calque Dynamic, il stocke ici son script JavaScript.
+    pub script: Option<String>, 
+    
+    // Le Buffer visuel (le cache)
     pub pixels: Vec<Rgba>,
-    // --- NOUVEAUTÉ : Mémoire dimensionnelle pour les pixels hors de la feuille ! ---
     pub overflow: Vec<(isize, isize, Rgba)>, 
 }
 
 impl Layer {
+    // Création d'un calque classique (Raster)
     pub fn new(name: &str, width: usize, height: usize, depth: usize) -> Self {
         let total_pixels = width * height;
         Self {
@@ -32,14 +46,16 @@ impl Layer {
             locked: false,
             opacity: 1.0,
             blend_mode: 0,
-            is_folder: false,
+            layer_type: LayerType::Raster,
             expanded: false,
             depth,
+            script: None,
             pixels: vec![Rgba { r: 0, g: 0, b: 0, a: 0 }; total_pixels],
-            overflow: Vec::new(), // Initialisation du vide
+            overflow: Vec::new(),
         }
     }
 
+    // Création d'un dossier
     pub fn new_folder(name: &str, depth: usize) -> Self {
         Self {
             name: name.to_string(),
@@ -47,10 +63,29 @@ impl Layer {
             locked: false,
             opacity: 1.0,
             blend_mode: 0,
-            is_folder: true,
+            layer_type: LayerType::Folder,
             expanded: true,
             depth,
+            script: None,
             pixels: Vec::new(), 
+            overflow: Vec::new(),
+        }
+    }
+
+    // --- NOUVEAUTÉ : Création d'un calque Dynamique (CFS) ---
+    pub fn new_dynamic(name: &str, width: usize, height: usize, depth: usize, code: &str) -> Self {
+        let total_pixels = width * height;
+        Self {
+            name: name.to_string(),
+            visible: true,
+            locked: false,
+            opacity: 1.0,
+            blend_mode: 0,
+            layer_type: LayerType::Dynamic,
+            expanded: false,
+            depth,
+            script: Some(code.to_string()), // On stocke le JS ici !
+            pixels: vec![Rgba { r: 0, g: 0, b: 0, a: 0 }; total_pixels], // Le buffer est vide, le moteur JS le remplira
             overflow: Vec::new(),
         }
     }
@@ -82,10 +117,17 @@ impl Canvas {
         self.layers.insert(index, folder);
     }
 
+    // --- NOUVEAUTÉ : Insérer un calque codé ---
+    pub fn insert_dynamic(&mut self, index: usize, name: &str, depth: usize, code: &str) {
+        let layer = Layer::new_dynamic(name, self.width, self.height, depth, code);
+        self.layers.insert(index, layer);
+    }
+
     pub fn render_flattened(&self) -> Vec<Rgba> {
         let total_pixels = self.width * self.height;
         let mut output = Vec::with_capacity(total_pixels);
 
+        // Damier de transparence
         let checker_size = 8; 
         for y in 0..self.height {
             for x in 0..self.width {
@@ -112,7 +154,7 @@ impl Canvas {
 
             if !layer.visible {
                 actual_visible[i] = false;
-                if layer.is_folder {
+                if layer.layer_type == LayerType::Folder {
                     current_hidden_depth = Some(layer.depth); 
                 }
             }
@@ -121,7 +163,7 @@ impl Canvas {
         for i in 0..self.layers.len() {
             let layer = &self.layers[i];
             
-            if !actual_visible[i] || layer.is_folder { continue; }
+            if !actual_visible[i] || layer.layer_type == LayerType::Folder { continue; }
 
             for j in 0..total_pixels {
                 let top = &layer.pixels[j];
