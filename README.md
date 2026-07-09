@@ -1,6 +1,6 @@
 # Limix Pro 🎨
 
-Limix Studio est une alternative native à Photoshop conçue spécifiquement pour l'écosystème Linux (avec support Windows). Développé en Rust, ce logiciel vise la performance absolue, la stabilité, et la réduction de la charge cognitive grâce à une interface minimaliste et familière.
+Limix Studio est une alternative native de logiciel de creation graphique conçue spécifiquement pour l'écosystème Linux (avec support Windows). Développé en Rust, ce logiciel vise la performance absolue, la stabilité, et la réduction de la charge cognitive grâce à une interface minimaliste et familière.
 
 Projet propulsé par l'initiative **David Mbuyamba et Esperant Mbikayi**.
 
