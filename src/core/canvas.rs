@@ -95,11 +95,12 @@ pub struct Canvas {
     pub width: usize,
     pub height: usize,
     pub layers: Vec<Layer>,
+    pub selection_mask: Option<Vec<u8>>, // 0 = non sélectionné, 255 = sélectionné
 }
 
 impl Canvas {
     pub fn new(width: usize, height: usize) -> Self {
-        Self { width, height, layers: Vec::new() }
+        Self { width, height, layers: Vec::new(), selection_mask: None }
     }
 
     pub fn add_layer(&mut self, name: &str, depth: usize) {

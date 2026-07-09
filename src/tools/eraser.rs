@@ -50,6 +50,11 @@ pub fn apply(
 
                     let erase_amount = alpha_factor * flow_mult * opac_mult;
                     let idx = (py as usize) * canvas.width + (px as usize);
+
+                    if let Some(mask) = &canvas.selection_mask {
+                        if mask[idx] == 0 { continue; }
+                    }
+
                     let mut pixel = canvas.layers[layer_idx].pixels[idx];
                     
                     let current_alpha = pixel.a as f32 / 255.0;

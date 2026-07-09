@@ -4,7 +4,12 @@ pub mod eraser;
 pub mod selection;
 pub mod transform;
 pub mod vector;
-// (Tu ajouteras pub mod fill; pub mod crop; etc. au fur et à mesure)
+pub mod pencil;
+pub mod fill;
+pub mod gradient;
+pub mod retouch;
+pub mod crop;
+pub mod magic_wand;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Tool {
